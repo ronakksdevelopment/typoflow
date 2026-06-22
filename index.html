@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TypeFlow Live — Real-Time Transcription Workspace</title>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <style>
 :root {
   --bg-deep: #080c14;
@@ -349,6 +350,11 @@ body.focus-mode .transcript-pane{padding:60px}
 .spinning{animation:spin 1s linear infinite}
 .gradient-text{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 select.field-input{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a8ab0' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:36px}
+.conn-status-bar{display:flex;align-items:center;gap:10px;padding:10px 16px;background:rgba(79,142,247,.08);border:1px solid rgba(79,142,247,.2);border-radius:10px;font-size:.82rem;color:var(--text-secondary);margin-top:12px}
+.conn-status-bar svg{width:14px;height:14px;flex-shrink:0}
+.conn-spinner{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
+.peer-id-display{font-family:monospace;font-size:.75rem;color:var(--accent);background:rgba(79,142,247,.1);padding:2px 8px;border-radius:5px;letter-spacing:.5px}
+.qr-hint{font-size:.75rem;color:var(--text-muted);text-align:center;margin-top:8px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -798,18 +804,41 @@ select.field-input{appearance:none;background-image:url("data:image/svg+xml,%3Cs
    ═══════════════════════════════════════════════════════════ */
 
 const DB_NAME='typeflow_db',DB_VER=1,STORE='sessions';
-let db,sessionCode,recognition,isListening=false,isMuted=false;
+let db,sessionCode,recognition,isListening=false;
 let transcriptText='',interimText='',undoStack=[],redoStack=[];
 let autoScroll=true,showTimestamps=false,focusMode=false;
 let sessionStart=null,speakingTime=0,speakingStart=null;
 let wpmHistory=[],wpmInterval,analyticsInterval,autoSaveInterval;
 let connectedDevices={};
-let mobileSpeechRecognition=null,mobileConnStart=null,mobileDurationInterval=null;
-let peerConnections={},dataChannels={};
 let waveformAnim=null,audioCtx=null,analyser=null,audioSource=null;
 let theme='dark';
 let animQueue=[];
 let isAnimating=false;
+
+/* ─── PeerJS globals ─── */
+let desktopPeer=null;          // Peer instance on desktop
+let mobilePeer=null;           // Peer instance on mobile
+let mobileConn=null;           // DataConnection from mobile → desktop
+let desktopConns={};           // id→DataConnection map on desktop side
+let mobMuted=false;
+let mobileSpeechRecognition=null,mobileConnStart=null,mobileDurationInterval=null;
+let mobileSessionCode=null,mobileNick=null,mobileLang='en-US',mobileDeviceId=null;
+
+/* ─── PeerJS config — uses free public PeerJS cloud broker ─── */
+const PEER_CONFIG={
+  host:'0.peerjs.com',
+  port:443,
+  path:'/',
+  secure:true,
+  config:{iceServers:[
+    {urls:'stun:stun.l.google.com:19302'},
+    {urls:'stun:stun1.l.google.com:19302'},
+    {urls:'stun:global.stun.twilio.com:3478'}
+  ]}
+};
+
+/* Desktop peer ID = "typeflow-" + sessionCode, so mobile can derive it from the code alone */
+function desktopPeerId(code){return'typeflow-sess-'+code}
 
 /* ─── IndexedDB ─── */
 function initDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,DB_VER);r.onupgradeneeded=e=>{e.target.result.createObjectStore(STORE,{keyPath:'code'})};r.onsuccess=e=>{db=e.target.result;res()};r.onerror=()=>res()})}
@@ -835,19 +864,99 @@ async function startDesktop(){
   document.getElementById('sidebar-duration').textContent='0:00:00';
   showScreen('desktop');
   sessionStart=Date.now();
-  startDesktopChannel();
   initWaveform();
   startAnalyticsLoop();
   startAutoSave();
   initSpeechRecognition();
-  showToast('Session '+sessionCode+' started — code: '+sessionCode,'success',5000);
+  window.addEventListener('keydown',handleKeyboard);
+  openDesktopPeer(sessionCode);
   if(saved&&saved.text){
     if(confirm('Restore previous transcript for this session?')){
       transcriptText=saved.text;
       renderTranscript();
     }
   }
-  window.addEventListener('keydown',handleKeyboard);
+}
+
+function openDesktopPeer(code){
+  const pid=desktopPeerId(code);
+  setStatus('Opening relay…','idle');
+  desktopPeer=new Peer(pid,PEER_CONFIG);
+
+  desktopPeer.on('open',id=>{
+    setStatus('Listening…','listening');
+    showToast('Session '+code+' ready — share code with your phone','success',5000);
+  });
+
+  desktopPeer.on('connection',conn=>{
+    const devId=conn.peer;
+    conn.on('open',()=>{
+      conn.send({type:'ACK',sessionCode});
+    });
+    conn.on('data',msg=>{handleDesktopMessage(msg,devId,conn)});
+    conn.on('close',()=>{removeDevice(devId)});
+    conn.on('error',()=>{removeDevice(devId)});
+    desktopConns[devId]=conn;
+  });
+
+  desktopPeer.on('error',e=>{
+    /* If peer ID is taken (session code collision), regenerate */
+    if(e.type==='unavailable-id'){
+      sessionCode=generateCode();
+      document.getElementById('session-code-val').textContent=sessionCode;
+      openDesktopPeer(sessionCode);
+      return;
+    }
+    setStatus('Relay error — retrying…','error');
+    setTimeout(()=>openDesktopPeer(code),3000);
+  });
+
+  desktopPeer.on('disconnected',()=>{
+    setStatus('Relay disconnected — reconnecting…','error');
+    setTimeout(()=>{try{desktopPeer.reconnect()}catch(e){openDesktopPeer(code)}},2000);
+  });
+}
+
+function handleDesktopMessage(msg,devId,conn){
+  switch(msg.type){
+    case'JOIN':
+      if(!connectedDevices[devId]){
+        addDevice(devId,msg.nick,msg.lang);
+      } else {
+        connectedDevices[devId].nick=msg.nick;
+        renderDevices();
+      }
+      break;
+    case'FINAL':
+      if(connectedDevices[devId]&&connectedDevices[devId].muted)break;
+      if(!connectedDevices[devId])addDevice(devId,msg.nick||'Mobile Mic',msg.lang);
+      connectedDevices[devId].speaking=true;
+      renderDevices();
+      const processed=processText(msg.text,connectedDevices[devId]?.nick||msg.nick||'Mobile');
+      if(processed){undoStack.push(transcriptText);queueTypingAnimation(processed)}
+      setTimeout(()=>{if(connectedDevices[devId]){connectedDevices[devId].speaking=false;renderDevices()}},2000);
+      break;
+    case'INTERIM':
+      if(connectedDevices[devId])connectedDevices[devId].speaking=true;
+      interimText=msg.text;
+      renderTranscriptWithInterim();
+      clearTimeout(connectedDevices[devId]?._interimTimer);
+      if(connectedDevices[devId])connectedDevices[devId]._interimTimer=setTimeout(()=>{
+        if(connectedDevices[devId])connectedDevices[devId].speaking=false;
+      },1200);
+      break;
+    case'MUTE':
+      if(connectedDevices[devId])connectedDevices[devId].muted=msg.muted;
+      renderDevices();
+      break;
+    case'BATTERY':
+      if(connectedDevices[devId])connectedDevices[devId].battery=msg.level;
+      renderDevices();
+      break;
+    case'PING':
+      conn.send({type:'PONG'});
+      break;
+  }
 }
 
 /* ─── SPEECH RECOGNITION (Desktop) ─── */
@@ -1270,18 +1379,10 @@ function showToast(msg,type='info',dur=3000){
   setTimeout(()=>{t.style.opacity='0';t.style.transform='translateX(20px)';t.style.transition='.3s';setTimeout(()=>t.remove(),350)},dur);
 }
 
-/* ═══════════════════════════════════════════
-   MOBILE / JOIN LOGIC — WebRTC + BroadcastChannel
-   ═══════════════════════════════════════════ */
-
-let broadcastChannel=null;
-let mobileRole=null;
-let mobileSpeaking=false;
-let mobileSessionCode=null;
-let mobileNick=null;
-let mobileLang='en-US';
-let mobileDeviceId=null;
-let mobMuted=false;
+/* ═══════════════════════════════════════════════════════
+   MOBILE / JOIN LOGIC — PeerJS WebRTC (cross-network)
+   Works phone ↔ laptop across any network worldwide
+   ═══════════════════════════════════════════════════════ */
 
 function joinSession(){
   const code=document.getElementById('join-code').value.trim();
@@ -1294,36 +1395,86 @@ function joinSession(){
   mobileSessionCode=code;
   mobileNick=nick;
   mobileLang=lang;
-  mobileDeviceId='mob_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+  mobileDeviceId='mob-'+Date.now()+'-'+Math.random().toString(36).slice(2,6);
   document.getElementById('mob-code-display').textContent=code;
   document.getElementById('mob-nick-display').textContent=nick;
-  showScreen('mobile');
-  startBatteryMonitor();
-  initMobileConnection();
+
+  /* Show connecting state before switching screens */
+  const btn=document.querySelector('#screen-join .btn-accent3');
+  if(btn){btn.innerHTML='<span class="conn-spinner"></span> Connecting…';btn.disabled=true}
+
+  initMobileConnection(code,nick,lang);
 }
 
-function initMobileConnection(){
-  try{
-    broadcastChannel=new BroadcastChannel('typeflow_'+mobileSessionCode);
-    broadcastChannel.onmessage=handleMobileChannelMessage;
-    /* Send JOIN immediately, then retry twice to survive any timing gap */
-    function sendJoin(){broadcastChannel.postMessage({type:'JOIN',id:mobileDeviceId,nick:mobileNick,lang:mobileLang})}
-    sendJoin();
-    setTimeout(sendJoin,800);
-    setTimeout(sendJoin,2500);
-    startMobileRecognition();
-    mobileConnStart=Date.now();
-    mobileDurationInterval=setInterval(updateMobileDuration,1000);
-    updateMobileQuality();
-    setInterval(updateMobileQuality,4000);
-    /* Heartbeat: re-announce presence every 8s in case desktop reloaded */
-    setInterval(()=>{if(broadcastChannel)broadcastChannel.postMessage({type:'JOIN',id:mobileDeviceId,nick:mobileNick,lang:mobileLang})},8000);
-  }catch(e){showToast('Could not connect. Make sure the session is open in the same browser.','error')}
+function initMobileConnection(code,nick,lang){
+  mobilePeer=new Peer(mobileDeviceId,PEER_CONFIG);
+
+  mobilePeer.on('open',myId=>{
+    /* Now connect to desktop peer whose ID is derived from the session code */
+    const targetId=desktopPeerId(code);
+    mobileConn=mobilePeer.connect(targetId,{reliable:true,serialization:'json'});
+
+    mobileConn.on('open',()=>{
+      /* Connection established — send JOIN */
+      mobileConn.send({type:'JOIN',nick,lang});
+      showScreen('mobile');
+      startBatteryMonitor();
+      mobileConnStart=Date.now();
+      mobileDurationInterval=setInterval(updateMobileDuration,1000);
+      updateMobileQuality();
+      setInterval(updateMobileQuality,4000);
+      /* Heartbeat ping every 8s to keep connection alive */
+      setInterval(()=>{if(mobileConn&&mobileConn.open)mobileConn.send({type:'PING'})},8000);
+      startMobileRecognition();
+      setMobileConnStatus('connected');
+    });
+
+    mobileConn.on('data',msg=>{
+      if(msg.type==='PONG')setMobileConnStatus('connected');
+    });
+
+    mobileConn.on('close',()=>{
+      setMobileConnStatus('disconnected');
+      showToast('Connection lost — tap Reconnect','warn',6000);
+    });
+
+    mobileConn.on('error',e=>{
+      setMobileConnStatus('error');
+      showToast('Connection error: '+e,'error');
+    });
+  });
+
+  mobilePeer.on('error',e=>{
+    const btn=document.querySelector('#screen-join .btn-accent3');
+    if(btn){btn.innerHTML='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg> Connect Microphone';btn.disabled=false}
+    const err=document.getElementById('join-error');
+    if(e.type==='peer-unavailable'){
+      err.textContent='Session code '+code+' not found. Make sure the workspace is open and the code is correct.';
+    } else if(e.type==='network'){
+      err.textContent='Network error. Check your internet connection and try again.';
+    } else {
+      err.textContent='Connection failed ('+e.type+'). Try again.';
+    }
+    err.style.display='block';
+    try{mobilePeer.destroy()}catch(ex){}
+    mobilePeer=null;
+  });
+}
+
+function setMobileConnStatus(state){
+  const dot=document.getElementById('mob-quality-dot');
+  if(!dot)return;
+  if(state==='connected'){
+    dot.style.background='var(--accent3)';dot.style.boxShadow='0 0 6px var(--accent3)';
+  } else if(state==='disconnected'||state==='error'){
+    dot.style.background='var(--danger)';dot.style.boxShadow='0 0 6px var(--danger)';
+  }
 }
 
 function startMobileRecognition(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){showToast('Speech recognition not supported','error');return}
+  if(!SR){showToast('Speech recognition not supported on this browser. Use Chrome.','error');return}
+  if(mobileSpeechRecognition){try{mobileSpeechRecognition.stop()}catch(e){}}
   mobileSpeechRecognition=new SR();
   mobileSpeechRecognition.continuous=true;
   mobileSpeechRecognition.interimResults=true;
@@ -1335,29 +1486,35 @@ function startMobileRecognition(){
       const t=e.results[i][0].transcript;
       if(e.results[i].isFinal)final+=t;else interim+=t;
     }
-    if(broadcastChannel){
-      if(final)broadcastChannel.postMessage({type:'FINAL',id:mobileDeviceId,nick:mobileNick,text:final,lang:mobileLang});
-      if(interim)broadcastChannel.postMessage({type:'INTERIM',id:mobileDeviceId,nick:mobileNick,text:interim});
+    if(mobileConn&&mobileConn.open){
+      if(final){mobileConn.send({type:'FINAL',text:final,nick:mobileNick,lang:mobileLang})}
+      if(interim){mobileConn.send({type:'INTERIM',text:interim,nick:mobileNick})}
     }
-    mobileSpeaking=!!(final||interim);
-    updateMobileMicState();
   };
-  mobileSpeechRecognition.onend=()=>{if(!isMuted)setTimeout(()=>{try{mobileSpeechRecognition.start()}catch(e){}},200)};
+  mobileSpeechRecognition.onerror=e=>{
+    if(e.error==='not-allowed'){showToast('Microphone access denied. Please allow mic in browser settings.','error')}
+  };
+  mobileSpeechRecognition.onend=()=>{
+    if(!mobMuted)setTimeout(()=>{try{mobileSpeechRecognition.start()}catch(ex){}},300);
+  };
   mobileSpeechRecognition.start();
 }
 
 function updateMobileDuration(){
   if(!mobileConnStart)return;
   const dur=Math.floor((Date.now()-mobileConnStart)/1000);
-  const el=document.getElementById('mob-duration');
-  if(el)el.textContent='Connected · '+fmtTime(dur);
+  const e=document.getElementById('mob-duration');
+  if(e)e.textContent='Connected · '+fmtTime(dur);
 }
+
 function updateMobileQuality(){
-  const q=Math.min(100,Math.max(50,85+(Math.random()*16-8)|0));
+  const conn=mobileConn;
+  const open=conn&&conn.open;
+  const q=open?Math.min(100,Math.max(60,85+(Math.random()*16-8)|0)):0;
   const fill=document.getElementById('mob-quality-fill');
   const pct=document.getElementById('mob-quality-pct');
   if(fill)fill.style.width=q+'%';
-  if(pct)pct.textContent=q>85?'Excellent':q>65?'Good':'Fair';
+  if(pct)pct.textContent=!open?'Offline':q>85?'Excellent':q>65?'Good':'Fair';
 }
 
 function toggleMicMute(){
@@ -1372,101 +1529,61 @@ function toggleMicMute(){
     statusText.textContent='Muted';
     statusSub.textContent='Tap to unmute';
     bars.forEach(b=>b.classList.add('muted'));
-    document.getElementById('rip1').style.animationPlayState='paused';
-    document.getElementById('rip2').style.animationPlayState='paused';
-    document.getElementById('rip3').style.animationPlayState='paused';
-    if(mobileSpeechRecognition)try{mobileSpeechRecognition.stop()}catch(e){}
-    if(broadcastChannel)broadcastChannel.postMessage({type:'MUTE',id:mobileDeviceId,muted:true});
-  }else{
+    ['rip1','rip2','rip3'].forEach(id=>{const r=document.getElementById(id);if(r)r.style.animationPlayState='paused'});
+    try{mobileSpeechRecognition&&mobileSpeechRecognition.stop()}catch(e){}
+    if(mobileConn&&mobileConn.open)mobileConn.send({type:'MUTE',muted:true});
+  } else {
     btn.classList.remove('muted');
     btn.querySelector('svg').innerHTML='<path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zm-1 15.93A8 8 0 0 1 4.07 11H2a10 10 0 0 0 9 9.93V23h2v-2.07A10 10 0 0 0 22 11h-2.07A8 8 0 0 1 13 17.93V17h-2v.93z"/>';
     statusText.textContent='Microphone Active';
     statusSub.textContent='Tap to mute';
     bars.forEach(b=>b.classList.remove('muted'));
-    document.getElementById('rip1').style.animationPlayState='running';
-    document.getElementById('rip2').style.animationPlayState='running';
-    document.getElementById('rip3').style.animationPlayState='running';
-    if(mobileSpeechRecognition)try{mobileSpeechRecognition.start()}catch(e){}
-    if(broadcastChannel)broadcastChannel.postMessage({type:'MUTE',id:mobileDeviceId,muted:false});
+    ['rip1','rip2','rip3'].forEach(id=>{const r=document.getElementById(id);if(r)r.style.animationPlayState='running'});
+    try{mobileSpeechRecognition&&mobileSpeechRecognition.start()}catch(e){}
+    if(mobileConn&&mobileConn.open)mobileConn.send({type:'MUTE',muted:false});
   }
 }
 
-function updateMobileMicState(){}
-
 function disconnectMobile(){
-  if(broadcastChannel)broadcastChannel.postMessage({type:'LEAVE',id:mobileDeviceId,nick:mobileNick});
+  if(mobileConn)try{mobileConn.close()}catch(e){}
+  if(mobilePeer)try{mobilePeer.destroy()}catch(e){}
   if(mobileSpeechRecognition)try{mobileSpeechRecognition.stop()}catch(e){}
-  if(broadcastChannel)broadcastChannel.close();
   if(mobileDurationInterval)clearInterval(mobileDurationInterval);
+  mobileConn=null;mobilePeer=null;mobileSpeechRecognition=null;
+  /* Reset join button */
+  const btn=document.querySelector('#screen-join .btn-accent3');
+  if(btn){btn.innerHTML='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg> Connect Microphone';btn.disabled=false}
   showLanding();
 }
 
 function startBatteryMonitor(){
   if(!navigator.getBattery)return;
   navigator.getBattery().then(b=>{
-    function upd(){const p=Math.round(b.level*100);const el=document.getElementById('bat-pct');if(el)el.textContent=p+'%';const f=document.getElementById('bat-fill');if(f){const w=Math.round((p/100)*10);f.setAttribute('width',Math.max(0,w))}}
-    upd();b.addEventListener('levelchange',upd);b.addEventListener('chargingchange',upd);
+    function upd(){
+      const p=Math.round(b.level*100);
+      const e=document.getElementById('bat-pct');if(e)e.textContent=p+'%';
+      const f=document.getElementById('bat-fill');if(f){f.setAttribute('width',Math.max(0,Math.round((p/100)*10)))}
+      if(mobileConn&&mobileConn.open)mobileConn.send({type:'BATTERY',level:p});
+    }
+    upd();
+    b.addEventListener('levelchange',upd);
+    b.addEventListener('chargingchange',upd);
   });
 }
 
-/* ═══════════════════════════════════════════
-   DESKTOP: Listen for BroadcastChannel from mobiles
-   ═══════════════════════════════════════════ */
-function startDesktopChannel(){
-  if(!sessionCode)return;
-  const ch=new BroadcastChannel('typeflow_'+sessionCode);
-  ch.onmessage=e=>{
-    const d=e.data;
-    if(d.type==='JOIN'){
-      addDevice(d.id,d.nick,d.lang);
-    }
-    else if(d.type==='LEAVE'){
-      removeDevice(d.id);
-    }
-    else if(d.type==='FINAL'&&d.text){
-      if(connectedDevices[d.id]&&connectedDevices[d.id].muted)return;
-      if(!connectedDevices[d.id])addDevice(d.id,d.nick||'Mobile Mic',d.lang);
-      connectedDevices[d.id].speaking=true;
-      renderDevices();
-      const processed=processText(d.text,d.nick||'Mobile Mic');
-      if(processed){undoStack.push(transcriptText);queueTypingAnimation(processed)}
-      setTimeout(()=>{if(connectedDevices[d.id]){connectedDevices[d.id].speaking=false;renderDevices()}},2000);
-    }
-    else if(d.type==='INTERIM'){
-      if(connectedDevices[d.id])connectedDevices[d.id].speaking=true;
-      interimText=d.text;
-      renderTranscriptWithInterim();
-      setTimeout(()=>{if(connectedDevices[d.id]){connectedDevices[d.id].speaking=false}},1000);
-    }
-    else if(d.type==='MUTE'){
-      if(connectedDevices[d.id])connectedDevices[d.id].muted=d.muted;
-      renderDevices();
-    }
-    else if(d.type==='PONG'){
-      if(connectedDevices[d.id])connectedDevices[d.id].lastPong=Date.now();
-    }
-  };
-  setInterval(()=>{Object.keys(connectedDevices).forEach(id=>{ch.postMessage({type:'PING',to:id})})},10000);
-}
-
-/* startDesktopChannel() is now called directly inside startDesktop() — see Fix 2 */
-
 /* ─── RESPONSIVE / MOBILE DETECTION ─── */
-function detectRole(){
-  const ua=navigator.userAgent;
-  const isMobileDevice=/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
-  const isSmall=window.innerWidth<768;
-  if((isMobileDevice||isSmall)&&window.location.hash==='#mic'){
-    showScreen('join');
-  }
-}
-detectRole();
+(function detectRole(){
+  const isMob=/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  if((isMob||window.innerWidth<768)&&window.location.hash==='#mic')showScreen('join');
+})();
 
 /* ─── INIT ─── */
 window.addEventListener('load',()=>{
   const canvas=document.getElementById('waveform-canvas');
-  if(canvas){const ro=new ResizeObserver(()=>{canvas.width=canvas.offsetWidth;canvas.height=canvas.offsetHeight});ro.observe(canvas)}
-  document.addEventListener('visibilitychange',()=>{if(document.hidden&&isListening){} });
+  if(canvas){
+    const ro=new ResizeObserver(()=>{canvas.width=canvas.offsetWidth;canvas.height=canvas.offsetHeight});
+    ro.observe(canvas);
+  }
 });
 </script>
 </body>
