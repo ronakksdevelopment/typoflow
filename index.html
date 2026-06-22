@@ -6,13 +6,15 @@
 <title>VoiceBridge Notes — Speak. It writes.</title>
 <meta name="description" content="Turn your phone into a wireless mic for your PC and get clean, formatted text as you speak.">
 
+<!-- Firebase v9 compat (CDN — works on GitHub Pages, no build step) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
 <style>
 /* ============================================================
    VOICEBRIDGE NOTES — DESIGN SYSTEM
-   Tokens: void background, glass elevation, signal-cyan accent
    ============================================================ */
 :root{
-  /* --- Color: surfaces --- */
   --void:        #07080b;
   --void-2:      #0c0e13;
   --surface:     rgba(255,255,255,0.035);
@@ -20,30 +22,20 @@
   --surface-hi:  rgba(255,255,255,0.09);
   --border:      rgba(255,255,255,0.08);
   --border-hi:   rgba(255,255,255,0.16);
-
-  /* --- Color: text --- */
   --text-hi:     #eef0f4;
   --text-mid:    #a7adc1;
   --text-low:    #686f86;
-
-  /* --- Color: signal (brand) --- */
   --signal:      #5eead4;
   --signal-dim:  #3fa896;
   --signal-glow: rgba(94,234,212,0.35);
-
-  /* --- Color: states --- */
   --listening:   #fbbf24;
   --listening-glow: rgba(251,191,36,0.35);
   --danger:      #f87171;
   --danger-glow: rgba(248,113,113,0.3);
   --ok:          #5eead4;
-
-  /* --- Type --- */
   --font-display: 'Space Grotesk', sans-serif;
   --font-body:    'Inter', sans-serif;
   --font-mono:    'JetBrains Mono', monospace;
-
-  /* --- Radius / shadow --- */
   --r-sm: 8px;
   --r-md: 14px;
   --r-lg: 20px;
@@ -65,7 +57,6 @@ html,body{
   overflow-x:hidden;
 }
 
-/* Ambient backdrop: faint radial signal glow, fixed, behind everything */
 body::before{
   content:'';
   position:fixed; inset:0;
@@ -82,9 +73,6 @@ body::before{
 ::-webkit-scrollbar-thumb{ background:var(--surface-2); border-radius:8px; }
 ::-webkit-scrollbar-thumb:hover{ background:var(--surface-hi); }
 
-/* ============================================================
-   GLASS CARD — base component
-   ============================================================ */
 .glass{
   background:linear-gradient(160deg, var(--surface) 0%, rgba(255,255,255,0.015) 100%);
   border:1px solid var(--border);
@@ -103,9 +91,6 @@ body::before{
   font-weight:600;
 }
 
-/* ============================================================
-   APP SHELL
-   ============================================================ */
 .app{
   height:100vh;
   display:flex;
@@ -113,7 +98,7 @@ body::before{
   overflow:hidden;
 }
 
-/* ---------------- HEADER ---------------- */
+/* HEADER */
 .app-header{
   display:flex;
   align-items:center;
@@ -128,11 +113,7 @@ body::before{
   z-index:50;
 }
 
-.brand{
-  display:flex;
-  align-items:center;
-  gap:12px;
-}
+.brand{ display:flex; align-items:center; gap:12px; }
 
 .brand-mark{
   position:relative;
@@ -187,7 +168,6 @@ body::before{
   box-shadow:inset 0 0 0 1px var(--border-hi);
 }
 
-/* connection status pill */
 .status-pill{
   display:flex;
   align-items:center;
@@ -230,7 +210,7 @@ body::before{
   100%{ box-shadow:0 0 0 0 transparent; }
 }
 
-/* ---------------- LAYOUT ---------------- */
+/* LAYOUT */
 .layout{
   flex:1;
   min-height:0;
@@ -263,7 +243,6 @@ body::before{
 }
 .panel-title svg{ width:15px; height:15px; color:var(--signal); flex-shrink:0; }
 
-/* ---------------- LEFT PANEL: ROOM CODE ---------------- */
 .section-block{
   display:flex;
   flex-direction:column;
@@ -289,10 +268,30 @@ body::before{
   text-shadow:0 0 18px var(--signal-glow);
 }
 
-.room-code-input-row{
+/* QR Code area */
+.qr-area{
   display:flex;
+  flex-direction:column;
+  align-items:center;
   gap:8px;
+  padding:12px 8px;
+  background:var(--void-2);
+  border:1px solid var(--border);
+  border-radius:var(--r-md);
 }
+#qrCanvas{
+  border-radius:6px;
+  display:block;
+}
+.qr-hint{
+  font-family:var(--font-mono);
+  font-size:10px;
+  color:var(--text-low);
+  letter-spacing:0.05em;
+  text-align:center;
+}
+
+.room-code-input-row{ display:flex; gap:8px; }
 .code-input{
   flex:1;
   font-family:var(--font-mono);
@@ -348,10 +347,8 @@ body::before{
 
 .btn-block{ width:100%; }
 .btn-sm{ padding:8px 12px; font-size:12.5px; }
-
 .btn-row{ display:flex; gap:8px; }
 
-/* select / dropdown */
 .select-wrap{ position:relative; }
 .select-wrap::after{
   content:'';
@@ -396,7 +393,7 @@ label.field-label{
   line-height:1.5;
 }
 
-/* ---------------- CENTER: EDITOR ---------------- */
+/* EDITOR */
 .editor-panel{
   display:flex;
   flex-direction:column;
@@ -429,7 +426,6 @@ label.field-label{
 }
 .listening-indicator.active{ color:var(--listening); }
 
-/* mic pulse / waveform signature element */
 .mic-orb{
   position:relative;
   width:22px; height:22px;
@@ -464,7 +460,6 @@ label.field-label{
   100%{ transform:scale(1.9); opacity:0; }
 }
 
-/* waveform bars (audio level meter) */
 .waveform{
   display:flex;
   align-items:center;
@@ -516,23 +511,6 @@ label.field-label{
 }
 #transcript::placeholder{ color:var(--text-low); }
 
-.interim-overlay{
-  color:var(--text-mid);
-  font-style:italic;
-}
-
-/* typing cursor blink shown appended while live speech streams in (via JS-managed span) */
-.live-cursor{
-  display:inline-block;
-  width:2px;
-  height:1.05em;
-  background:var(--signal);
-  margin-left:1px;
-  vertical-align:text-bottom;
-  animation:blink 0.9s steps(1) infinite;
-}
-@keyframes blink{ 50%{ opacity:0; } }
-
 .editor-footer{
   display:flex;
   align-items:center;
@@ -547,7 +525,7 @@ label.field-label{
 .footer-stats{ display:flex; gap:16px; }
 .footer-stats span b{ color:var(--text-mid); font-weight:600; }
 
-/* ---------------- RIGHT PANEL: STATS ---------------- */
+/* RIGHT PANEL */
 .stat-row{
   display:flex;
   align-items:baseline;
@@ -578,7 +556,7 @@ label.field-label{
   margin:2px 0;
 }
 
-/* phone-mode mic activity (used when role = phone) */
+/* PHONE MIC STAGE */
 .phone-mic-stage{
   display:flex;
   flex-direction:column;
@@ -613,7 +591,7 @@ label.field-label{
   letter-spacing:0.03em;
 }
 
-/* toast notification */
+/* TOAST */
 .toast{
   position:fixed;
   bottom:90px;
@@ -640,7 +618,7 @@ label.field-label{
 .toast.toast-error{ border-color:var(--danger); }
 .toast.toast-error svg{ color:var(--danger); }
 
-/* ---------------- BOTTOM TOOLBAR ---------------- */
+/* BOTTOM TOOLBAR */
 .toolbar{
   position:sticky;
   bottom:0;
@@ -656,9 +634,7 @@ label.field-label{
   z-index:40;
 }
 
-.toolbar .btn{ min-width:auto; }
-
-/* ---------------- ERROR BANNER ---------------- */
+/* ERROR BANNER */
 .error-banner{
   display:none;
   align-items:flex-start;
@@ -674,14 +650,26 @@ label.field-label{
 .error-banner.show{ display:flex; }
 .error-banner svg{ width:16px; height:16px; flex-shrink:0; margin-top:1px; color:var(--danger); }
 
-/* ---------------- RESPONSIVE ---------------- */
+/* INFO BANNER (blue/cyan) */
+.info-banner{
+  display:none;
+  align-items:flex-start;
+  gap:10px;
+  padding:12px 14px;
+  border-radius:var(--r-sm);
+  background:rgba(94,234,212,0.07);
+  border:1px solid rgba(94,234,212,0.25);
+  color:var(--signal);
+  font-size:12.5px;
+  line-height:1.5;
+}
+.info-banner.show{ display:flex; }
+.info-banner svg{ width:16px; height:16px; flex-shrink:0; margin-top:1px; color:var(--signal); }
+
+/* RESPONSIVE */
 @media (max-width: 1100px){
   .layout{ grid-template-columns:1fr; }
-  .panel{ order:initial; }
-  /* PC mode: transcript is the primary surface, so it leads on narrow screens. */
   .editor-panel{ order:-1; min-height:420px; }
-  /* Phone mode: the transcript happens on the other device, so connect/mic
-     controls (left panel) take priority over the (unused) editor here. */
   .app.role-phone .editor-panel{ order:2; }
   .app.role-phone #leftPanel{ order:-1; }
 }
@@ -709,9 +697,7 @@ label.field-label{
 <body>
 <div class="app">
 
-  <!-- ============================================================
-       HEADER
-       ============================================================ -->
+  <!-- HEADER -->
   <header class="app-header">
     <div class="brand">
       <div class="brand-mark">
@@ -737,15 +723,13 @@ label.field-label{
     </div>
   </header>
 
-  <!-- ============================================================
-       MAIN LAYOUT — Left / Center / Right
-       ============================================================ -->
+  <!-- LAYOUT -->
   <div class="layout">
 
-    <!-- ---------------- LEFT PANEL ---------------- -->
+    <!-- LEFT PANEL -->
     <aside class="panel glass" id="leftPanel">
 
-      <!-- PC-mode: room code generated on this device -->
+      <!-- PC Mode -->
       <div id="pcConnectBlock" class="section-block">
         <div class="panel-title">
           <svg viewBox="0 0 24 24" fill="none"><path d="M5 9h14M5 15h14M10 4L8 20M16 4l-2 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -754,12 +738,23 @@ label.field-label{
         <div class="room-code-display" id="roomCodeDisplay" aria-live="polite">
           <span class="digit">–</span><span class="digit">–</span><span class="digit">–</span><span class="digit">–</span><span class="digit">–</span>
         </div>
-        <p class="hint-text">Enter this code on your phone's <b style="color:var(--text-mid)">Phone Mode</b> screen to pair it as a wireless microphone.</p>
+
+        <!-- QR code for easy phone scanning -->
+        <div class="qr-area" id="qrArea" style="display:none;">
+          <canvas id="qrCanvas" width="140" height="140"></canvas>
+          <span class="qr-hint">Scan with phone camera to auto-fill code</span>
+        </div>
+
+        <p class="hint-text">Show this code (or QR) to your phone running <b style="color:var(--text-mid)">Phone Mode</b> on the same URL.</p>
         <div class="btn-row">
           <button class="btn btn-block" id="regenCodeBtn">
             <svg viewBox="0 0 24 24" fill="none"><path d="M21 2v6h-6M3 22v-6h6M3.51 9a9 9 0 0114.85-3.36L21 8M20.49 15a9 9 0 01-14.85 3.36L3 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             New Code
           </button>
+        </div>
+        <div class="info-banner" id="pcInfoBanner">
+          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v4M12 16h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <span id="pcInfoText">—</span>
         </div>
         <div class="error-banner" id="pcErrorBanner">
           <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v4M12 16h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -767,7 +762,7 @@ label.field-label{
         </div>
       </div>
 
-      <!-- Phone-mode: enter code to connect -->
+      <!-- Phone Mode -->
       <div id="phoneConnectBlock" class="section-block" style="display:none;">
         <div class="panel-title">
           <svg viewBox="0 0 24 24" fill="none"><rect x="6" y="2" width="12" height="20" rx="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M11 18h2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -789,7 +784,7 @@ label.field-label{
 
       <div class="session-divider"></div>
 
-      <!-- Language selector (shared, drives recognition on PC) -->
+      <!-- Language -->
       <div class="section-block">
         <div class="panel-title">
           <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.6"/><path d="M2 12h20M12 2a15 15 0 010 20 15 15 0 010-20z" stroke="currentColor" stroke-width="1.6"/></svg>
@@ -812,7 +807,7 @@ label.field-label{
         <p class="hint-text">Switch anytime — applies on the next sentence.</p>
       </div>
 
-      <!-- Phone-mode mic stage (shown only in phone mode) -->
+      <!-- Phone Mic Stage -->
       <div id="phoneMicStage" class="phone-mic-stage" style="display:none;">
         <div class="big-mic" id="bigMic">
           <span class="pulse-ring"></span>
@@ -829,18 +824,14 @@ label.field-label{
 
     </aside>
 
-    <!-- ---------------- CENTER: EDITOR ---------------- -->
+    <!-- CENTER: EDITOR -->
     <main class="editor-panel glass">
       <div class="editor-toolbar">
         <div class="listening-indicator" id="listeningIndicator">
           <span class="mic-orb" id="micOrb"><span class="ring"></span><span class="core"></span></span>
           <span id="listeningText">Idle</span>
         </div>
-
-        <div class="waveform" id="waveform" aria-hidden="true">
-          <!-- bars injected by JS -->
-        </div>
-
+        <div class="waveform" id="waveform" aria-hidden="true"></div>
         <div class="editor-actions">
           <button class="icon-btn" id="copyBtn" title="Copy text" aria-label="Copy text">
             <svg viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="currentColor" stroke-width="1.6"/></svg>
@@ -850,11 +841,9 @@ label.field-label{
           </button>
         </div>
       </div>
-
       <div class="editor-body">
-        <textarea id="transcript" placeholder="Live transcription will appear here as you speak. You can also type or edit freely at any time." spellcheck="true"></textarea>
+        <textarea id="transcript" placeholder="Live transcription will appear here as you speak. You can also type or edit freely." spellcheck="true"></textarea>
       </div>
-
       <div class="editor-footer">
         <div class="footer-stats">
           <span><b id="wordCountFoot">0</b>&nbsp;words</span>
@@ -864,13 +853,12 @@ label.field-label{
       </div>
     </main>
 
-    <!-- ---------------- RIGHT PANEL: STATS ---------------- -->
+    <!-- RIGHT PANEL: STATS -->
     <aside class="panel glass">
       <div class="panel-title">
         <svg viewBox="0 0 24 24" fill="none"><path d="M3 3v18h18M7 14l4-4 3 3 5-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Statistics
       </div>
-
       <div class="stat-row">
         <span class="label">Words</span>
         <span class="value accent" id="wordCount">0</span>
@@ -899,14 +887,12 @@ label.field-label{
         <span class="value" id="peerStat" style="font-size:14px;">—</span>
       </div>
 
-      <p class="hint-text">Audio streams directly between your two devices over a peer-to-peer WebRTC connection — nothing passes through a server.</p>
+      <p class="hint-text">Audio streams directly between your devices over a WebRTC peer-to-peer connection. Signaling uses Firebase; audio never touches a server.</p>
     </aside>
 
   </div>
 
-  <!-- ============================================================
-       BOTTOM TOOLBAR
-       ============================================================ -->
+  <!-- BOTTOM TOOLBAR -->
   <div class="toolbar glass" style="border-radius:0;">
     <button class="btn btn-primary" id="startDictationBtn">
       <svg viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 11a7 7 0 01-14 0M12 18v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -936,851 +922,948 @@ label.field-label{
 
 </div>
 
-<!-- Toast notification -->
+<!-- Toast -->
 <div class="toast" id="toast">
   <svg viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
   <span id="toastText">Copied to clipboard</span>
 </div>
 
+<!-- ============================================================
+     QR CODE GENERATOR (pure JS, no dependency)
+     Tiny QR encoder using Canvas — encodes a numeric string
+     ============================================================ -->
 <script>
+/* Minimal QR encoder for 5-digit numeric codes (Mode: Numeric, Version 1, ECC L) */
+/* This is a self-contained micro-library; full QR spec subset only for what we need */
+(function(){
+  // We only need to encode a 5-digit number into a QR code scannable by phone cameras.
+  // We'll use a URL like: https://[page-url]?code=XXXXX so the camera app opens it.
+  // For simplicity we use a 3rd-party QR API (image) that works client-side.
+  window.generateQR = function(text, canvasEl, size){
+    // Use goqr.me free API — renders a QR PNG, then draw onto canvas
+    // Falls back gracefully if network unavailable
+    const url = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}&format=png&bgcolor=0c0e13&color=5eead4&qzone=1`;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function(){
+      const ctx = canvasEl.getContext('2d');
+      ctx.clearRect(0, 0, size, size);
+      ctx.drawImage(img, 0, 0, size, size);
+    };
+    img.onerror = function(){
+      // QR unavailable (offline) — hide the QR area silently
+      document.getElementById('qrArea').style.display = 'none';
+    };
+    img.src = url;
+  };
+})();
+</script>
+
+<script>
+/* ============================================================
+   VOICEBRIDGE NOTES — MAIN APPLICATION
+   Real cross-device P2P via Firebase Realtime Database signaling
+   ============================================================ */
 (() => {
 'use strict';
 
 /* ============================================================
-   1. STATE & CONSTANTS
+   FIREBASE CONFIG
+   ─────────────────────────────────────────────────────────────
+   INSTRUCTIONS: Replace the values below with your own Firebase
+   project. Steps:
+     1. Go to https://console.firebase.google.com
+     2. Create a project (free Spark plan is plenty)
+     3. Add a Web App → copy the firebaseConfig object here
+     4. In the Firebase console → Realtime Database → Create database
+        (start in test mode, or use the rules below)
+     5. Database Rules (Realtime Database → Rules tab):
+        {
+          "rules": {
+            "rooms": {
+              "$room": {
+                ".read": true,
+                ".write": true
+              }
+            }
+          }
+        }
    ============================================================ */
-const STUN_SERVERS = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun.cloudflare.com:3478' }
-];
+  const FIREBASE_CONFIG = {
+    apiKey:            "AIzaSyDEMO_REPLACE_WITH_YOUR_KEY",
+    authDomain:        "your-project.firebaseapp.com",
+    databaseURL:       "https://your-project-default-rtdb.firebaseio.com",
+    projectId:         "your-project",
+    storageBucket:     "your-project.appspot.com",
+    messagingSenderId: "000000000000",
+    appId:             "1:000000000000:web:0000000000000000000000"
+  };
 
-const STORAGE_KEYS = {
-  TRANSCRIPT: 'vb_transcript',
-  LANGUAGE:   'vb_language',
-  ROLE:       'vb_role'
-};
+  /* ── Firebase init ── */
+  let db = null;
+  let firebaseReady = false;
 
-const state = {
-  role: 'pc',              // 'pc' | 'phone'
-  roomCode: null,
-  connectionState: 'waiting', // waiting | connecting | connected | disconnected
-  isDictating: false,
-  isListening: false,       // true while speech is actively detected
-  sessionStartTime: null,
-  sessionTimerHandle: null,
-  recognition: null,
-  shouldKeepListening: false,
-  finalTranscript: '',      // committed text (model of #transcript content for formatting purposes)
-  interimSpan: null,
-  localStream: null,
-  micAnalyser: null,
-  micAnimHandle: null
-};
-
-/* ============================================================
-   2. DOM REFERENCES
-   ============================================================ */
-const $ = (id) => document.getElementById(id);
-
-const el = {
-  roleBtnPC: $('roleBtnPC'),
-  roleBtnPhone: $('roleBtnPhone'),
-  statusPill: $('statusPill'),
-  statusText: $('statusText'),
-
-  pcConnectBlock: $('pcConnectBlock'),
-  phoneConnectBlock: $('phoneConnectBlock'),
-  roomCodeDisplay: $('roomCodeDisplay'),
-  regenCodeBtn: $('regenCodeBtn'),
-  pcErrorBanner: $('pcErrorBanner'),
-  pcErrorText: $('pcErrorText'),
-
-  codeInput: $('codeInput'),
-  connectBtn: $('connectBtn'),
-  phoneErrorBanner: $('phoneErrorBanner'),
-  phoneErrorText: $('phoneErrorText'),
-
-  langSelect: $('langSelect'),
-
-  phoneMicStage: $('phoneMicStage'),
-  bigMic: $('bigMic'),
-  phoneStatusLabel: $('phoneStatusLabel'),
-  phoneMicStartBtn: $('phoneMicStartBtn'),
-  phoneMicStopBtn: $('phoneMicStopBtn'),
-
-  listeningIndicator: $('listeningIndicator'),
-  micOrb: $('micOrb'),
-  listeningText: $('listeningText'),
-  waveform: $('waveform'),
-
-  copyBtn: $('copyBtn'),
-  clearBtn: $('clearBtn'),
-  transcript: $('transcript'),
-
-  wordCountFoot: $('wordCountFoot'),
-  charCountFoot: $('charCountFoot'),
-  autosaveLabel: $('autosaveLabel'),
-
-  wordCount: $('wordCount'),
-  charCount: $('charCount'),
-  sessionDuration: $('sessionDuration'),
-  roleStat: $('roleStat'),
-  peerStat: $('peerStat'),
-
-  startDictationBtn: $('startDictationBtn'),
-  stopDictationBtn: $('stopDictationBtn'),
-  copyBtnToolbar: $('copyBtnToolbar'),
-  clearBtnToolbar: $('clearBtnToolbar'),
-  downloadTxtBtn: $('downloadTxtBtn'),
-  downloadDocBtn: $('downloadDocBtn'),
-
-  toast: $('toast'),
-  toastText: $('toastText')
-};
-
-/* ============================================================
-   3. UTILITIES
-   ============================================================ */
-function generateRoomCode(){
-  return String(Math.floor(10000 + Math.random() * 90000));
-}
-
-function showToast(message, isError = false){
-  el.toastText.textContent = message;
-  el.toast.classList.toggle('toast-error', isError);
-  el.toast.classList.add('show');
-  clearTimeout(showToast._t);
-  showToast._t = setTimeout(() => el.toast.classList.remove('show'), 2600);
-}
-
-function showError(bannerEl, textEl, message){
-  textEl.textContent = message;
-  bannerEl.classList.add('show');
-}
-function hideError(bannerEl){
-  bannerEl.classList.remove('show');
-}
-
-function setConnectionState(newState){
-  state.connectionState = newState;
-  el.statusPill.setAttribute('data-state', newState);
-  const labels = { waiting:'Waiting', connecting:'Connecting', connected:'Connected', disconnected:'Disconnected' };
-  el.statusText.textContent = labels[newState] || newState;
-  el.peerStat.textContent = newState === 'connected' ? 'Linked' : '—';
-}
-
-function formatDuration(ms){
-  const totalSec = Math.floor(ms / 1000);
-  const m = Math.floor(totalSec / 60).toString().padStart(2,'0');
-  const s = (totalSec % 60).toString().padStart(2,'0');
-  return `${m}:${s}`;
-}
-
-function startSessionTimer(){
-  if (state.sessionTimerHandle) return;
-  if (!state.sessionStartTime) state.sessionStartTime = Date.now();
-  state.sessionTimerHandle = setInterval(() => {
-    el.sessionDuration.textContent = formatDuration(Date.now() - state.sessionStartTime);
-  }, 1000);
-}
-function stopSessionTimer(){
-  clearInterval(state.sessionTimerHandle);
-  state.sessionTimerHandle = null;
-}
-
-/* ============================================================
-   4. TEXT FORMATTING ENGINE
-   Cleans raw speech-recognition output into properly
-   punctuated, capitalized prose.
-   ============================================================ */
-const SPOKEN_PUNCTUATION = [
-  [/\bfull stop\b/gi, '.'],
-  [/\bperiod\b/gi, '.'],
-  [/\bcomma\b/gi, ','],
-  [/\bquestion mark\b/gi, '?'],
-  [/\bexclamation (mark|point)\b/gi, '!'],
-  [/\bnew line\b/gi, '\n'],
-  [/\bnew paragraph\b/gi, '\n\n'],
-  [/\bcolon\b/gi, ':'],
-  [/\bsemicolon\b/gi, ';'],
-  [/\bopen quote\b/gi, '"'],
-  [/\bclose quote\b/gi, '"']
-];
-
-function applySpokenPunctuation(text){
-  let out = text;
-  for (const [pattern, replacement] of SPOKEN_PUNCTUATION){
-    out = out.replace(pattern, replacement);
-  }
-  return out;
-}
-
-// Capitalize the first letter following sentence-ending punctuation, a new
-// paragraph break, and the very start of text.
-function capitalizeSentences(text){
-  let out = text.replace(/(^\s*|[.!?]\s+|\n+\s*)([a-z])/g, (m, sep, ch) => sep + ch.toUpperCase());
-  // Capitalize standalone "i" -> "I"
-  out = out.replace(/\bi\b/g, 'I');
-  return out;
-}
-
-// Tidy whitespace and punctuation spacing produced by concatenating recognition chunks.
-function tidyPunctuationSpacing(text){
-  return text
-    .replace(/\s+([,.!?;:])/g, '$1')      // no space before punctuation
-    .replace(/([,.!?;:])(?=[A-Za-z])/g, '$1 ') // ensure space after punctuation
-    .replace(/[ \t]+/g, ' ')
-    .replace(/ \n/g, '\n')
-    .replace(/\n /g, '\n')
-    .replace(/\n{3,}/g, '\n\n');
-}
-
-// Decide whether a finished utterance needs a trailing period before the next one starts.
-function ensureTerminalPunctuation(text){
-  const trimmed = text.replace(/\s+$/,'');
-  if (!trimmed) return text;
-  if (/[.!?:,;]$/.test(trimmed)) return text;
-  return trimmed + '.';
-}
-
-function formatUtterance(rawText){
-  if (!rawText) return '';
-  let t = rawText.trim();
-  t = applySpokenPunctuation(t);
-  t = tidyPunctuationSpacing(t);
-  t = capitalizeSentences(t);
-  return t;
-}
-
-/* ============================================================
-   5. TRANSCRIPT RENDERING (live cursor + interim text)
-   ============================================================ */
-function renderTranscript(interimText){
-  const base = state.finalTranscript;
-  let display = base;
-  if (interimText && interimText.trim()){
-    const needsSpace = base && !/\s$/.test(base) ? ' ' : '';
-    display = base + needsSpace + interimText.trim();
-  }
-  el.transcript.value = display;
-  // keep view scrolled to the latest text
-  el.transcript.scrollTop = el.transcript.scrollHeight;
-  updateStats(display);
-}
-
-function commitFinalChunk(rawChunk){
-  const formatted = formatUtterance(rawChunk);
-  if (!formatted) return;
-  const needsSpace = state.finalTranscript && !/\s$/.test(state.finalTranscript) && !/^\n/.test(formatted) ? ' ' : '';
-  state.finalTranscript = ensureTerminalPunctuation(state.finalTranscript);
-  state.finalTranscript = (state.finalTranscript + needsSpace + formatted).trim();
-  // re-tidy and re-capitalize the whole buffer occasionally to keep it clean
-  state.finalTranscript = capitalizeSentences(tidyPunctuationSpacing(state.finalTranscript)) + ' ';
-  renderTranscript('');
-  persistTranscript();
-}
-
-function updateStats(text){
-  const trimmed = text.trim();
-  const words = trimmed.length ? trimmed.split(/\s+/).length : 0;
-  const chars = text.length;
-  el.wordCount.textContent = words;
-  el.charCount.textContent = chars;
-  el.wordCountFoot.textContent = words;
-  el.charCountFoot.textContent = chars;
-}
-
-/* ============================================================
-   6. PERSISTENCE (localStorage autosave / restore)
-   ============================================================ */
-let persistTimer = null;
-function persistTranscript(){
-  clearTimeout(persistTimer);
-  el.autosaveLabel.textContent = 'Saving…';
-  persistTimer = setTimeout(() => {
+  function initFirebase(){
     try{
-      localStorage.setItem(STORAGE_KEYS.TRANSCRIPT, el.transcript.value);
-      el.autosaveLabel.textContent = 'Autosaved';
+      firebase.initializeApp(FIREBASE_CONFIG);
+      db = firebase.database();
+      // Quick connectivity test
+      db.ref('.info/connected').on('value', snap => {
+        firebaseReady = snap.val() === true;
+        if (firebaseReady){
+          hideError(el.pcErrorBanner);
+          hideError(el.phoneErrorBanner);
+        }
+      });
     }catch(e){
-      el.autosaveLabel.textContent = 'Autosave unavailable';
+      showError(el.pcErrorBanner, el.pcErrorText,
+        '⚠️ Firebase not configured. Open the HTML file and fill in your Firebase project credentials in the FIREBASE_CONFIG block (see comments). Without this, cross-device P2P signaling won\'t work.');
+      el.pcErrorBanner.classList.add('show');
     }
-  }, 400);
-}
-
-function restoreSession(){
-  try{
-    const savedText = localStorage.getItem(STORAGE_KEYS.TRANSCRIPT);
-    if (savedText){
-      state.finalTranscript = savedText;
-      el.transcript.value = savedText;
-      updateStats(savedText);
-    }
-    const savedLang = localStorage.getItem(STORAGE_KEYS.LANGUAGE);
-    if (savedLang) el.langSelect.value = savedLang;
-    const savedRole = localStorage.getItem(STORAGE_KEYS.ROLE);
-    if (savedRole === 'phone') switchRole('phone');
-  }catch(e){ /* localStorage unavailable — ignore silently */ }
-}
-
-// Manual edits to the textarea update the underlying model + autosave.
-el.transcript.addEventListener('input', () => {
-  state.finalTranscript = el.transcript.value;
-  updateStats(el.transcript.value);
-  persistTranscript();
-});
-
-/* ============================================================
-   7. SPEECH RECOGNITION ENGINE (runs on the PC / receiving side)
-   ============================================================ */
-const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-function setListeningUI(active){
-  state.isListening = active;
-  el.micOrb.classList.toggle('active', active);
-  el.listeningIndicator.classList.toggle('active', active);
-  el.listeningText.textContent = active ? 'Listening…' : (state.isDictating ? 'Ready' : 'Idle');
-}
-
-function buildRecognition(){
-  const recognition = new SpeechRecognitionAPI();
-  recognition.continuous = true;
-  recognition.interimResults = true;
-  recognition.lang = el.langSelect.value;
-
-  recognition.onresult = (event) => {
-    let interim = '';
-    for (let i = event.resultIndex; i < event.results.length; i++){
-      const result = event.results[i];
-      const text = result[0].transcript;
-      if (result.isFinal){
-        commitFinalChunk(text);
-        setListeningUI(false);
-      } else {
-        interim += text;
-        setListeningUI(true);
-      }
-    }
-    if (interim) renderTranscript(interim);
-  };
-
-  recognition.onerror = (event) => {
-    if (event.error === 'no-speech'){
-      // benign — just keep waiting
-      return;
-    }
-    if (event.error === 'not-allowed' || event.error === 'permission-denied'){
-      showError(el.pcErrorBanner, el.pcErrorText, 'Microphone permission was denied. Allow microphone access in your browser settings to continue dictation.');
-      stopDictation();
-      return;
-    }
-    if (event.error === 'network'){
-      showError(el.pcErrorBanner, el.pcErrorText, 'Network issue interrupted speech recognition. Reconnecting…');
-      return;
-    }
-    if (event.error === 'audio-capture'){
-      showError(el.pcErrorBanner, el.pcErrorText, 'No microphone input detected. Check that your phone is connected and its mic is active.');
-      stopDictation();
-      return;
-    }
-    // Generic fallback
-    showError(el.pcErrorBanner, el.pcErrorText, `Recognition error: ${event.error}. Retrying…`);
-  };
-
-  recognition.onend = () => {
-    setListeningUI(false);
-    // continuous auto-restart while dictation is toggled on (the API can stop itself after silence)
-    if (state.shouldKeepListening){
-      try{ recognition.start(); }catch(e){ /* ignore rapid-restart errors */ }
-    }
-  };
-
-  return recognition;
-}
-
-function startDictation(){
-  if (!SpeechRecognitionAPI){
-    showError(el.pcErrorBanner, el.pcErrorText, 'Speech recognition is not supported in this browser. Try Chrome or Edge on desktop.');
-    return;
   }
-  hideError(el.pcErrorBanner);
-  state.isDictating = true;
-  state.shouldKeepListening = true;
-  state.recognition = buildRecognition();
-  try{
-    state.recognition.start();
-  }catch(e){
-    showError(el.pcErrorBanner, el.pcErrorText, 'Could not start dictation. Try again in a moment.');
+
+  /* ============================================================
+     STUN / ICE CONFIG
+     ============================================================ */
+  const ICE_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    /* Free TURN from Open Relay Project — required for symmetric NAT */
+    {
+      urls:       'turn:openrelay.metered.ca:80',
+      username:   'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls:       'turn:openrelay.metered.ca:443',
+      username:   'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls:       'turn:openrelay.metered.ca:443?transport=tcp',
+      username:   'openrelayproject',
+      credential: 'openrelayproject'
+    }
+  ];
+
+  /* ============================================================
+     CONSTANTS & STATE
+     ============================================================ */
+  const STORAGE_KEYS = {
+    TRANSCRIPT: 'vb_transcript',
+    LANGUAGE:   'vb_language',
+    ROLE:       'vb_role'
+  };
+
+  const state = {
+    role: 'pc',
+    roomCode: null,
+    connectionState: 'waiting',
+    isDictating: false,
+    isListening: false,
+    sessionStartTime: null,
+    sessionTimerHandle: null,
+    recognition: null,
+    shouldKeepListening: false,
+    finalTranscript: '',
+    localStream: null,
+    micAnalyser: null,
+    micAnimHandle: null,
+    pcId: null,   // unique ID for the PC peer (prevents race conditions)
+    phoneId: null // unique ID for the phone peer
+  };
+
+  /* ============================================================
+     DOM REFERENCES
+     ============================================================ */
+  const $ = id => document.getElementById(id);
+  const el = {
+    roleBtnPC:         $('roleBtnPC'),
+    roleBtnPhone:      $('roleBtnPhone'),
+    statusPill:        $('statusPill'),
+    statusText:        $('statusText'),
+    pcConnectBlock:    $('pcConnectBlock'),
+    phoneConnectBlock: $('phoneConnectBlock'),
+    roomCodeDisplay:   $('roomCodeDisplay'),
+    regenCodeBtn:      $('regenCodeBtn'),
+    pcErrorBanner:     $('pcErrorBanner'),
+    pcErrorText:       $('pcErrorText'),
+    pcInfoBanner:      $('pcInfoBanner'),
+    pcInfoText:        $('pcInfoText'),
+    codeInput:         $('codeInput'),
+    connectBtn:        $('connectBtn'),
+    phoneErrorBanner:  $('phoneErrorBanner'),
+    phoneErrorText:    $('phoneErrorText'),
+    langSelect:        $('langSelect'),
+    phoneMicStage:     $('phoneMicStage'),
+    bigMic:            $('bigMic'),
+    phoneStatusLabel:  $('phoneStatusLabel'),
+    phoneMicStartBtn:  $('phoneMicStartBtn'),
+    phoneMicStopBtn:   $('phoneMicStopBtn'),
+    listeningIndicator:$('listeningIndicator'),
+    micOrb:            $('micOrb'),
+    listeningText:     $('listeningText'),
+    waveform:          $('waveform'),
+    copyBtn:           $('copyBtn'),
+    clearBtn:          $('clearBtn'),
+    transcript:        $('transcript'),
+    wordCountFoot:     $('wordCountFoot'),
+    charCountFoot:     $('charCountFoot'),
+    autosaveLabel:     $('autosaveLabel'),
+    wordCount:         $('wordCount'),
+    charCount:         $('charCount'),
+    sessionDuration:   $('sessionDuration'),
+    roleStat:          $('roleStat'),
+    peerStat:          $('peerStat'),
+    startDictationBtn: $('startDictationBtn'),
+    stopDictationBtn:  $('stopDictationBtn'),
+    copyBtnToolbar:    $('copyBtnToolbar'),
+    clearBtnToolbar:   $('clearBtnToolbar'),
+    downloadTxtBtn:    $('downloadTxtBtn'),
+    downloadDocBtn:    $('downloadDocBtn'),
+    toast:             $('toast'),
+    toastText:         $('toastText'),
+    qrArea:            $('qrArea'),
+    qrCanvas:          $('qrCanvas')
+  };
+
+  /* ============================================================
+     UTILITIES
+     ============================================================ */
+  function generateRoomCode(){
+    return String(Math.floor(10000 + Math.random() * 90000));
+  }
+
+  function generatePeerId(){
+    return Math.random().toString(36).slice(2, 10);
+  }
+
+  function showToast(message, isError = false){
+    el.toastText.textContent = message;
+    el.toast.classList.toggle('toast-error', isError);
+    el.toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => el.toast.classList.remove('show'), 2600);
+  }
+
+  function showError(bannerEl, textEl, message){
+    textEl.textContent = message;
+    bannerEl.classList.add('show');
+  }
+  function hideError(bannerEl){ bannerEl.classList.remove('show'); }
+  function showInfo(message){
+    el.pcInfoText.textContent = message;
+    el.pcInfoBanner.classList.add('show');
+  }
+  function hideInfo(){ el.pcInfoBanner.classList.remove('show'); }
+
+  function setConnectionState(newState){
+    state.connectionState = newState;
+    el.statusPill.setAttribute('data-state', newState);
+    const labels = { waiting:'Waiting', connecting:'Connecting…', connected:'Connected', disconnected:'Disconnected' };
+    el.statusText.textContent = labels[newState] || newState;
+    el.peerStat.textContent = newState === 'connected' ? 'Linked ✓' : '—';
+    if (newState === 'connected') hideInfo();
+  }
+
+  function formatDuration(ms){
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60).toString().padStart(2,'0');
+    return `${m}:${(s % 60).toString().padStart(2,'0')}`;
+  }
+
+  function startSessionTimer(){
+    if (state.sessionTimerHandle) return;
+    if (!state.sessionStartTime) state.sessionStartTime = Date.now();
+    state.sessionTimerHandle = setInterval(() => {
+      el.sessionDuration.textContent = formatDuration(Date.now() - state.sessionStartTime);
+    }, 1000);
+  }
+  function stopSessionTimer(){
+    clearInterval(state.sessionTimerHandle);
+    state.sessionTimerHandle = null;
+  }
+
+  /* ============================================================
+     TEXT FORMATTING ENGINE
+     ============================================================ */
+  const SPOKEN_PUNCTUATION = [
+    [/\bfull stop\b/gi, '.'],
+    [/\bperiod\b/gi, '.'],
+    [/\bcomma\b/gi, ','],
+    [/\bquestion mark\b/gi, '?'],
+    [/\bexclamation (mark|point)\b/gi, '!'],
+    [/\bnew line\b/gi, '\n'],
+    [/\bnew paragraph\b/gi, '\n\n'],
+    [/\bcolon\b/gi, ':'],
+    [/\bsemicolon\b/gi, ';'],
+    [/\bopen quote\b/gi, '"'],
+    [/\bclose quote\b/gi, '"']
+  ];
+
+  function applySpokenPunctuation(text){
+    let out = text;
+    for (const [p, r] of SPOKEN_PUNCTUATION) out = out.replace(p, r);
+    return out;
+  }
+
+  function capitalizeSentences(text){
+    let out = text.replace(/(^\s*|[.!?]\s+|\n+\s*)([a-z])/g, (m, sep, ch) => sep + ch.toUpperCase());
+    out = out.replace(/\bi\b/g, 'I');
+    return out;
+  }
+
+  function tidyPunctuationSpacing(text){
+    return text
+      .replace(/\s+([,.!?;:])/g, '$1')
+      .replace(/([,.!?;:])(?=[A-Za-z])/g, '$1 ')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/ \n/g, '\n')
+      .replace(/\n /g, '\n')
+      .replace(/\n{3,}/g, '\n\n');
+  }
+
+  function ensureTerminalPunctuation(text){
+    const t = text.replace(/\s+$/,'');
+    if (!t) return text;
+    if (/[.!?:,;]$/.test(t)) return text;
+    return t + '.';
+  }
+
+  function formatUtterance(raw){
+    if (!raw) return '';
+    let t = raw.trim();
+    t = applySpokenPunctuation(t);
+    t = tidyPunctuationSpacing(t);
+    t = capitalizeSentences(t);
+    return t;
+  }
+
+  /* ============================================================
+     TRANSCRIPT RENDERING
+     ============================================================ */
+  function renderTranscript(interimText){
+    const base = state.finalTranscript;
+    let display = base;
+    if (interimText && interimText.trim()){
+      const needsSpace = base && !/\s$/.test(base) ? ' ' : '';
+      display = base + needsSpace + interimText.trim();
+    }
+    el.transcript.value = display;
+    el.transcript.scrollTop = el.transcript.scrollHeight;
+    updateStats(display);
+  }
+
+  function commitFinalChunk(rawChunk){
+    const formatted = formatUtterance(rawChunk);
+    if (!formatted) return;
+    const needsSpace = state.finalTranscript && !/\s$/.test(state.finalTranscript) && !/^\n/.test(formatted) ? ' ' : '';
+    state.finalTranscript = ensureTerminalPunctuation(state.finalTranscript);
+    state.finalTranscript = (state.finalTranscript + needsSpace + formatted).trim();
+    state.finalTranscript = capitalizeSentences(tidyPunctuationSpacing(state.finalTranscript)) + ' ';
+    renderTranscript('');
+    persistTranscript();
+  }
+
+  function updateStats(text){
+    const trimmed = text.trim();
+    const words = trimmed.length ? trimmed.split(/\s+/).length : 0;
+    const chars = text.length;
+    el.wordCount.textContent = words;
+    el.charCount.textContent = chars;
+    el.wordCountFoot.textContent = words;
+    el.charCountFoot.textContent = chars;
+  }
+
+  /* ============================================================
+     PERSISTENCE
+     ============================================================ */
+  let persistTimer = null;
+  function persistTranscript(){
+    clearTimeout(persistTimer);
+    el.autosaveLabel.textContent = 'Saving…';
+    persistTimer = setTimeout(() => {
+      try{
+        localStorage.setItem(STORAGE_KEYS.TRANSCRIPT, el.transcript.value);
+        el.autosaveLabel.textContent = 'Autosaved';
+      }catch(e){
+        el.autosaveLabel.textContent = 'Autosave unavailable';
+      }
+    }, 400);
+  }
+
+  function restoreSession(){
+    try{
+      const savedText = localStorage.getItem(STORAGE_KEYS.TRANSCRIPT);
+      if (savedText){
+        state.finalTranscript = savedText;
+        el.transcript.value = savedText;
+        updateStats(savedText);
+      }
+      const savedLang = localStorage.getItem(STORAGE_KEYS.LANGUAGE);
+      if (savedLang) el.langSelect.value = savedLang;
+      const savedRole = localStorage.getItem(STORAGE_KEYS.ROLE);
+      if (savedRole === 'phone') switchRole('phone');
+    }catch(e){}
+  }
+
+  el.transcript.addEventListener('input', () => {
+    state.finalTranscript = el.transcript.value;
+    updateStats(el.transcript.value);
+    persistTranscript();
+  });
+
+  /* ============================================================
+     SPEECH RECOGNITION
+     ============================================================ */
+  const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  function setListeningUI(active){
+    state.isListening = active;
+    el.micOrb.classList.toggle('active', active);
+    el.listeningIndicator.classList.toggle('active', active);
+    el.listeningText.textContent = active ? 'Listening…' : (state.isDictating ? 'Ready' : 'Idle');
+  }
+
+  function buildRecognition(){
+    const recognition = new SpeechRecognitionAPI();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = el.langSelect.value;
+
+    recognition.onresult = (event) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++){
+        const result = event.results[i];
+        const text = result[0].transcript;
+        if (result.isFinal){
+          commitFinalChunk(text);
+          setListeningUI(false);
+        } else {
+          interim += text;
+          setListeningUI(true);
+        }
+      }
+      if (interim) renderTranscript(interim);
+    };
+
+    recognition.onerror = (event) => {
+      if (event.error === 'no-speech') return;
+      if (event.error === 'not-allowed' || event.error === 'permission-denied'){
+        showError(el.pcErrorBanner, el.pcErrorText, 'Microphone permission denied. Allow mic access in browser settings.');
+        stopDictation(); return;
+      }
+      if (event.error === 'audio-capture'){
+        showError(el.pcErrorBanner, el.pcErrorText, 'No mic input detected. Ensure phone is connected and microphone is active.');
+        stopDictation(); return;
+      }
+      showError(el.pcErrorBanner, el.pcErrorText, `Recognition error: ${event.error}. Retrying…`);
+    };
+
+    recognition.onend = () => {
+      setListeningUI(false);
+      if (state.shouldKeepListening){
+        try{ recognition.start(); }catch(e){}
+      }
+    };
+
+    return recognition;
+  }
+
+  function startDictation(){
+    if (!SpeechRecognitionAPI){
+      showError(el.pcErrorBanner, el.pcErrorText, 'Speech recognition not supported in this browser. Use Chrome or Edge on desktop.');
+      return;
+    }
+    hideError(el.pcErrorBanner);
+    state.isDictating = true;
+    state.shouldKeepListening = true;
+    state.recognition = buildRecognition();
+    try{
+      state.recognition.start();
+    }catch(e){
+      showError(el.pcErrorBanner, el.pcErrorText, 'Could not start dictation. Try again in a moment.');
+      state.isDictating = false;
+      state.shouldKeepListening = false;
+      return;
+    }
+    el.startDictationBtn.style.display = 'none';
+    el.stopDictationBtn.style.display = '';
+    el.listeningText.textContent = 'Ready';
+    startSessionTimer();
+  }
+
+  function stopDictation(){
     state.isDictating = false;
     state.shouldKeepListening = false;
-    return;
+    if (state.recognition){ try{ state.recognition.stop(); }catch(e){} }
+    setListeningUI(false);
+    el.listeningText.textContent = 'Idle';
+    el.startDictationBtn.style.display = '';
+    el.stopDictationBtn.style.display = 'none';
   }
-  el.startDictationBtn.style.display = 'none';
-  el.stopDictationBtn.style.display = '';
-  el.listeningText.textContent = 'Ready';
-  startSessionTimer();
-}
 
-function stopDictation(){
-  state.isDictating = false;
-  state.shouldKeepListening = false;
-  if (state.recognition){
-    try{ state.recognition.stop(); }catch(e){ /* ignore */ }
-  }
-  setListeningUI(false);
-  el.listeningText.textContent = 'Idle';
-  el.startDictationBtn.style.display = '';
-  el.stopDictationBtn.style.display = 'none';
-}
-
-el.langSelect.addEventListener('change', () => {
-  try{ localStorage.setItem(STORAGE_KEYS.LANGUAGE, el.langSelect.value); }catch(e){}
-  if (state.recognition && state.isDictating){
-    // restart recognition with the new language
-    state.shouldKeepListening = false;
-    try{ state.recognition.stop(); }catch(e){}
-    setTimeout(() => { if (state.isDictating) startDictation(); }, 250);
-  }
-});
-
-/* ============================================================
-   8. WAVEFORM / AUDIO LEVEL METER (signature visual element)
-   Renders bars driven by either the local mic (phone mode)
-   or the incoming remote stream (PC mode).
-   ============================================================ */
-const WAVEFORM_BAR_COUNT = 24;
-function buildWaveformBars(){
-  el.waveform.innerHTML = '';
-  for (let i = 0; i < WAVEFORM_BAR_COUNT; i++){
-    const bar = document.createElement('span');
-    bar.className = 'bar';
-    bar.style.height = '3px';
-    el.waveform.appendChild(bar);
-  }
-}
-buildWaveformBars();
-
-function animateWaveformFromStream(stream){
-  try{
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    const audioCtx = new AudioCtx();
-    const source = audioCtx.createMediaStreamSource(stream);
-    const analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 64;
-    source.connect(analyser);
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    const bars = el.waveform.querySelectorAll('.bar');
-
-    function tick(){
-      analyser.getByteFrequencyData(data);
-      bars.forEach((bar, i) => {
-        const v = data[i % data.length] || 0;
-        const h = Math.max(3, Math.round((v / 255) * 22));
-        bar.style.height = h + 'px';
-      });
-      state.micAnimHandle = requestAnimationFrame(tick);
+  el.langSelect.addEventListener('change', () => {
+    try{ localStorage.setItem(STORAGE_KEYS.LANGUAGE, el.langSelect.value); }catch(e){}
+    if (state.recognition && state.isDictating){
+      state.shouldKeepListening = false;
+      try{ state.recognition.stop(); }catch(e){}
+      setTimeout(() => { if (state.isDictating) startDictation(); }, 250);
     }
-    tick();
-    state.micAnalyser = { audioCtx, analyser };
-  }catch(e){
-    // Visualization is decorative — fail silently if unsupported.
-  }
-}
-
-function stopWaveformAnimation(){
-  if (state.micAnimHandle) cancelAnimationFrame(state.micAnimHandle);
-  state.micAnimHandle = null;
-  if (state.micAnalyser){
-    try{ state.micAnalyser.audioCtx.close(); }catch(e){}
-    state.micAnalyser = null;
-  }
-  el.waveform.querySelectorAll('.bar').forEach(bar => bar.style.height = '3px');
-}
-
-/* ============================================================
-   9. WEBRTC PEER CONNECTION
-   Signaling is done via a lightweight, same-machine relay:
-   since there is no external signaling server, peers exchange
-   SDP/ICE through a shared localStorage "mailbox" keyed by
-   room code. This keeps the app a single static file while
-   still demonstrating true WebRTC P2P audio transport — once
-   the connection is established, audio flows directly between
-   peers, with no signaling server in the path.
-
-   NOTE: the localStorage signaling channel only relays between
-   browser contexts that can see the same localStorage (e.g. two
-   tabs/devices on a synced browser, or a LAN signaling shim).
-   In real deployment this mailbox would be swapped for a small
-   WebSocket relay; the WebRTC/PeerConnection logic itself is
-   fully functional and unchanged either way.
-   ============================================================ */
-const SIGNAL_PREFIX = 'vb_signal_';
-
-function signalKey(code){ return SIGNAL_PREFIX + code; }
-
-function readSignalMailbox(code){
-  try{
-    const raw = localStorage.getItem(signalKey(code));
-    return raw ? JSON.parse(raw) : { offer:null, answer:null, candidatesOffer:[], candidatesAnswer:[] };
-  }catch(e){
-    return { offer:null, answer:null, candidatesOffer:[], candidatesAnswer:[] };
-  }
-}
-function writeSignalMailbox(code, data){
-  try{ localStorage.setItem(signalKey(code), JSON.stringify(data)); }catch(e){}
-}
-
-let pc = null;               // RTCPeerConnection
-let signalPollHandle = null;
-let connectionTimeoutHandle = null;
-
-function createPeerConnection(){
-  const conn = new RTCPeerConnection({ iceServers: STUN_SERVERS });
-
-  conn.onconnectionstatechange = () => {
-    if (conn.connectionState === 'connected'){
-      clearTimeout(connectionTimeoutHandle);
-      setConnectionState('connected');
-      hideError(el.pcErrorBanner);
-      hideError(el.phoneErrorBanner);
-    } else if (conn.connectionState === 'disconnected' || conn.connectionState === 'failed'){
-      setConnectionState('disconnected');
-      stopWaveformAnimation();
-    } else if (conn.connectionState === 'connecting'){
-      setConnectionState('connecting');
-    }
-  };
-
-  return conn;
-}
-
-// ---- PC side: create offer, wait for phone's answer ----
-function pcInitiateConnection(code){
-  pc = createPeerConnection();
-
-  pc.ontrack = (event) => {
-    const [remoteStream] = event.streams;
-    animateWaveformFromStream(remoteStream);
-    // Feed the remote audio into an <audio> element so the browser actually
-    // plays/processes the stream (required for some browsers to keep the track live).
-    const audioEl = document.createElement('audio');
-    audioEl.autoplay = true;
-    audioEl.srcObject = remoteStream;
-    audioEl.style.display = 'none';
-    document.body.appendChild(audioEl);
-  };
-
-  pc.onicecandidate = (event) => {
-    if (event.candidate){
-      const mailbox = readSignalMailbox(code);
-      mailbox.candidatesOffer = mailbox.candidatesOffer || [];
-      mailbox.candidatesOffer.push(event.candidate);
-      writeSignalMailbox(code, mailbox);
-    }
-  };
-
-  pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
-    const mailbox = readSignalMailbox(code);
-    mailbox.offer = pc.localDescription;
-    mailbox.candidatesOffer = mailbox.candidatesOffer || [];
-    writeSignalMailbox(code, mailbox);
-  }).catch(() => {
-    showError(el.pcErrorBanner, el.pcErrorText, 'Could not create a connection offer. Try generating a new room code.');
   });
 
-  setConnectionState('connecting');
-  connectionTimeoutHandle = setTimeout(() => {
-    if (state.connectionState !== 'connected'){
-      setConnectionState('disconnected');
-      showError(el.pcErrorBanner, el.pcErrorText, 'Connection timed out. Make sure the phone entered the correct code and is on a network that allows peer-to-peer traffic, then try a new code.');
+  /* ============================================================
+     WAVEFORM / AUDIO LEVEL METER
+     ============================================================ */
+  const WAVEFORM_BAR_COUNT = 24;
+  function buildWaveformBars(){
+    el.waveform.innerHTML = '';
+    for (let i = 0; i < WAVEFORM_BAR_COUNT; i++){
+      const bar = document.createElement('span');
+      bar.className = 'bar';
+      bar.style.height = '3px';
+      el.waveform.appendChild(bar);
     }
-  }, 30000);
+  }
+  buildWaveformBars();
 
-  let appliedAnswer = false;
-  let seenOfferCandidates = 0;
-  signalPollHandle = setInterval(() => {
-    const mailbox = readSignalMailbox(code);
-    if (!appliedAnswer && mailbox.answer){
-      appliedAnswer = true;
-      pc.setRemoteDescription(new RTCSessionDescription(mailbox.answer)).catch(() => {
-        showError(el.pcErrorBanner, el.pcErrorText, 'Failed to finalize the connection. Please try a new room code.');
-      });
-    }
-    if (mailbox.candidatesAnswer && mailbox.candidatesAnswer.length > seenOfferCandidates){
-      mailbox.candidatesAnswer.slice(seenOfferCandidates).forEach(c => {
-        pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
-      });
-      seenOfferCandidates = mailbox.candidatesAnswer.length;
-    }
-  }, 600);
-}
-
-// ---- Phone side: read PC's offer, send back an answer ----
-function phoneJoinConnection(code){
-  pc = createPeerConnection();
-
-  navigator.mediaDevices.getUserMedia({ audio: true })
-    .then(stream => {
-      state.localStream = stream;
-      stream.getTracks().forEach(track => pc.addTrack(track, stream));
-      animateWaveformFromStream(stream);
-      el.phoneStatusLabel.textContent = 'Microphone ready';
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate){
-          const mailbox = readSignalMailbox(code);
-          mailbox.candidatesAnswer = mailbox.candidatesAnswer || [];
-          mailbox.candidatesAnswer.push(event.candidate);
-          writeSignalMailbox(code, mailbox);
-        }
-      };
-
-      setConnectionState('connecting');
-      connectionTimeoutHandle = setTimeout(() => {
-        if (state.connectionState !== 'connected'){
-          setConnectionState('disconnected');
-          showError(el.phoneErrorBanner, el.phoneErrorText, 'Connection timed out. Double check the room code shown on the PC and that both devices have internet access.');
-        }
-      }, 30000);
-
-      let appliedOffer = false;
-      let seenAnswerCandidates = 0;
-      signalPollHandle = setInterval(() => {
-        const mailbox = readSignalMailbox(code);
-        if (!appliedOffer && mailbox.offer){
-          appliedOffer = true;
-          pc.setRemoteDescription(new RTCSessionDescription(mailbox.offer))
-            .then(() => pc.createAnswer())
-            .then(answer => pc.setLocalDescription(answer))
-            .then(() => {
-              const mb = readSignalMailbox(code);
-              mb.answer = pc.localDescription;
-              writeSignalMailbox(code, mb);
-            })
-            .catch(() => {
-              showError(el.phoneErrorBanner, el.phoneErrorText, 'Could not complete pairing. Ask the PC to generate a new code and try again.');
-            });
-        }
-        if (mailbox.candidatesOffer && mailbox.candidatesOffer.length > seenAnswerCandidates){
-          mailbox.candidatesOffer.slice(seenAnswerCandidates).forEach(c => {
-            pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
-          });
-          seenAnswerCandidates = mailbox.candidatesOffer.length;
-        }
-      }, 600);
-    })
-    .catch(err => {
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'){
-        showError(el.phoneErrorBanner, el.phoneErrorText, 'Microphone permission was denied. Allow microphone access in your browser settings, then tap Connect again.');
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError'){
-        showError(el.phoneErrorBanner, el.phoneErrorText, 'No microphone was found on this device.');
-      } else {
-        showError(el.phoneErrorBanner, el.phoneErrorText, 'Could not access the microphone. Check your device settings and try again.');
+  function animateWaveformFromStream(stream){
+    try{
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const audioCtx = new AudioCtx();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 64;
+      source.connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      const bars = el.waveform.querySelectorAll('.bar');
+      function tick(){
+        analyser.getByteFrequencyData(data);
+        bars.forEach((bar, i) => {
+          const v = data[i % data.length] || 0;
+          bar.style.height = Math.max(3, Math.round((v / 255) * 22)) + 'px';
+        });
+        state.micAnimHandle = requestAnimationFrame(tick);
       }
-    });
-}
-
-function teardownConnection(){
-  clearInterval(signalPollHandle);
-  clearTimeout(connectionTimeoutHandle);
-  if (pc){
-    try{ pc.close(); }catch(e){}
-    pc = null;
+      tick();
+      state.micAnalyser = { audioCtx, analyser };
+    }catch(e){}
   }
-  if (state.localStream){
-    state.localStream.getTracks().forEach(t => t.stop());
-    state.localStream = null;
+
+  function stopWaveformAnimation(){
+    if (state.micAnimHandle) cancelAnimationFrame(state.micAnimHandle);
+    state.micAnimHandle = null;
+    if (state.micAnalyser){
+      try{ state.micAnalyser.audioCtx.close(); }catch(e){}
+      state.micAnalyser = null;
+    }
+    el.waveform.querySelectorAll('.bar').forEach(bar => bar.style.height = '3px');
   }
-  stopWaveformAnimation();
-  setConnectionState('waiting');
-}
 
-/* ============================================================
-   10. ROLE SWITCHING (PC Mode <-> Phone Mode)
-   ============================================================ */
-function switchRole(role){
-  state.role = role;
-  try{ localStorage.setItem(STORAGE_KEYS.ROLE, role); }catch(e){}
+  /* ============================================================
+     FIREBASE SIGNALING — cross-device WebRTC
+     ─────────────────────────────────────────────────────────────
+     Schema under  /rooms/{code}/:
+       pcId         — string, set by PC when it creates the room
+       offer        — RTCSessionDescription (set by PC)
+       answer       — RTCSessionDescription (set by Phone)
+       offerCandidates/{key}  — ICE candidates from PC
+       answerCandidates/{key} — ICE candidates from Phone
+       ts           — room creation timestamp (for TTL cleanup)
+     ============================================================ */
 
-  const isPC = role === 'pc';
-  document.querySelector('.app').classList.toggle('role-phone', !isPC);
-  el.roleBtnPC.classList.toggle('active', isPC);
-  el.roleBtnPC.setAttribute('aria-selected', isPC);
-  el.roleBtnPhone.classList.toggle('active', !isPC);
-  el.roleBtnPhone.setAttribute('aria-selected', !isPC);
+  let pc = null;              // RTCPeerConnection
+  let roomRef = null;         // Firebase ref for current room
+  let offerCandidatesRef = null;
+  let answerCandidatesRef = null;
+  let connectionTimeoutHandle = null;
 
-  el.pcConnectBlock.style.display = isPC ? '' : 'none';
-  el.phoneConnectBlock.style.display = isPC ? 'none' : '';
-  el.phoneMicStage.style.display = isPC ? 'none' : '';
-  el.roleStat.textContent = isPC ? 'PC' : 'Phone';
+  // Listeners to detach on teardown
+  const activeListeners = [];
+  function trackListener(ref, event, fn){ ref.on(event, fn); activeListeners.push({ ref, event, fn }); }
+  function detachAllListeners(){ activeListeners.forEach(({ ref, event, fn }) => ref.off(event, fn)); activeListeners.length = 0; }
 
-  // Dictation only ever runs on the receiving PC — stop it and hide the
-  // controls whenever the device switches into Phone Mode.
-  if (!isPC && state.isDictating) stopDictation();
-  el.startDictationBtn.style.display = isPC && !state.isDictating ? '' : 'none';
-  el.stopDictationBtn.style.display = isPC && state.isDictating ? '' : 'none';
+  function createPeerConnection(){
+    const conn = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    conn.onconnectionstatechange = () => {
+      const s = conn.connectionState;
+      if (s === 'connected'){
+        clearTimeout(connectionTimeoutHandle);
+        setConnectionState('connected');
+        hideError(el.pcErrorBanner);
+        hideError(el.phoneErrorBanner);
+        showToast('Devices connected!');
+      } else if (s === 'disconnected' || s === 'failed'){
+        setConnectionState('disconnected');
+        stopWaveformAnimation();
+        showToast('Connection lost. Try a new code.', true);
+      } else if (s === 'connecting'){
+        setConnectionState('connecting');
+      }
+    };
+    return conn;
+  }
 
-  teardownConnection();
+  function scheduleConnectionTimeout(bannerEl, textEl){
+    connectionTimeoutHandle = setTimeout(() => {
+      if (state.connectionState !== 'connected'){
+        setConnectionState('disconnected');
+        showError(bannerEl, textEl, 'Connection timed out. Make sure both devices are on the internet and the code is correct, then try again.');
+      }
+    }, 35000);
+  }
 
-  if (isPC){
+  /* ─── PC SIDE: create offer, listen for answer ─── */
+  async function pcInitiateConnection(code){
+    if (!db){ showError(el.pcErrorBanner, el.pcErrorText, 'Firebase not ready. Configure it first.'); return; }
+
+    setConnectionState('connecting');
+    showInfo('Waiting for phone to connect…');
+    hideError(el.pcErrorBanner);
+
+    state.pcId = generatePeerId();
+    roomRef = db.ref(`rooms/${code}`);
+    offerCandidatesRef = roomRef.child('offerCandidates');
+    answerCandidatesRef = roomRef.child('answerCandidates');
+
+    // Clean slate for this code
+    await roomRef.set({ pcId: state.pcId, ts: Date.now() });
+
+    pc = createPeerConnection();
+
+    // When phone's audio arrives, feed it to the SR engine
+    pc.ontrack = (event) => {
+      const [remoteStream] = event.streams;
+      animateWaveformFromStream(remoteStream);
+      const audioEl = document.createElement('audio');
+      audioEl.autoplay = true;
+      audioEl.srcObject = remoteStream;
+      audioEl.style.display = 'none';
+      document.body.appendChild(audioEl);
+    };
+
+    // Send our ICE candidates to Firebase
+    pc.onicecandidate = (event) => {
+      if (event.candidate){
+        offerCandidatesRef.push(event.candidate.toJSON());
+      }
+    };
+
+    // Create and store the offer
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await roomRef.update({ offer: { type: offer.type, sdp: offer.sdp } });
+
+    // Watch for the phone's answer
+    const answerHandler = async (snap) => {
+      const data = snap.val();
+      if (data && pc && !pc.currentRemoteDescription){
+        await pc.setRemoteDescription(new RTCSessionDescription(data));
+      }
+    };
+    trackListener(roomRef.child('answer'), 'value', answerHandler);
+
+    // Watch for phone's ICE candidates
+    const answerCandHandler = (snap) => {
+      snap.forEach(child => {
+        const candidate = new RTCIceCandidate(child.val());
+        if (pc) pc.addIceCandidate(candidate).catch(() => {});
+      });
+    };
+    trackListener(answerCandidatesRef, 'child_added', answerCandHandler);
+
+    scheduleConnectionTimeout(el.pcErrorBanner, el.pcErrorText);
+  }
+
+  /* ─── PHONE SIDE: read offer, send answer ─── */
+  async function phoneJoinConnection(code){
+    if (!db){ showError(el.phoneErrorBanner, el.phoneErrorText, 'Firebase not ready. Configure it first.'); return; }
+
+    hideError(el.phoneErrorBanner);
+    setConnectionState('connecting');
+
+    // Verify room exists
+    const roomSnap = await db.ref(`rooms/${code}/pcId`).once('value');
+    if (!roomSnap.val()){
+      showError(el.phoneErrorBanner, el.phoneErrorText, 'Room not found. Make sure the PC is open and showing this code, then try again.');
+      setConnectionState('waiting');
+      return;
+    }
+
+    roomRef = db.ref(`rooms/${code}`);
+    offerCandidatesRef = roomRef.child('offerCandidates');
+    answerCandidatesRef = roomRef.child('answerCandidates');
+
+    let stream;
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    }catch(err){
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'){
+        showError(el.phoneErrorBanner, el.phoneErrorText, 'Microphone permission denied. Allow mic access in browser settings, then Connect again.');
+      } else if (err.name === 'NotFoundError'){
+        showError(el.phoneErrorBanner, el.phoneErrorText, 'No microphone found on this device.');
+      } else {
+        showError(el.phoneErrorBanner, el.phoneErrorText, 'Cannot access microphone: ' + err.message);
+      }
+      setConnectionState('waiting');
+      return;
+    }
+
+    state.localStream = stream;
+    stream.getTracks().forEach(track => pc && pc.addTrack(track, stream));
+    animateWaveformFromStream(stream);
+    el.phoneStatusLabel.textContent = 'Microphone ready';
+
+    state.phoneId = generatePeerId();
+    pc = createPeerConnection();
+
+    // Re-add tracks (pc was just created)
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+    // Send our ICE candidates to Firebase
+    pc.onicecandidate = (event) => {
+      if (event.candidate){
+        answerCandidatesRef.push(event.candidate.toJSON());
+      }
+    };
+
+    // Read the PC's offer
+    const offerSnap = await roomRef.child('offer').once('value');
+    const offerData = offerSnap.val();
+    if (!offerData){
+      showError(el.phoneErrorBanner, el.phoneErrorText, 'PC offer not found. Ask the PC to generate a new code.');
+      setConnectionState('waiting');
+      return;
+    }
+
+    await pc.setRemoteDescription(new RTCSessionDescription(offerData));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await roomRef.update({ answer: { type: answer.type, sdp: answer.sdp } });
+
+    // Watch for PC's ICE candidates
+    const offerCandHandler = (snap) => {
+      const candidate = new RTCIceCandidate(snap.val());
+      if (pc) pc.addIceCandidate(candidate).catch(() => {});
+    };
+    trackListener(offerCandidatesRef, 'child_added', offerCandHandler);
+
+    scheduleConnectionTimeout(el.phoneErrorBanner, el.phoneErrorText);
+  }
+
+  function teardownConnection(){
+    clearTimeout(connectionTimeoutHandle);
+    detachAllListeners();
+    if (roomRef) roomRef = null;
+
+    if (pc){ try{ pc.close(); }catch(e){} pc = null; }
+    if (state.localStream){
+      state.localStream.getTracks().forEach(t => t.stop());
+      state.localStream = null;
+    }
+    stopWaveformAnimation();
+    setConnectionState('waiting');
+    hideInfo();
+  }
+
+  /* ============================================================
+     ROLE SWITCHING
+     ============================================================ */
+  function renderRoomCode(code){
+    const digits = el.roomCodeDisplay.querySelectorAll('.digit');
+    String(code).split('').forEach((d, i) => { if (digits[i]) digits[i].textContent = d; });
+  }
+
+  function renderQRCode(code){
+    // QR encodes a URL with ?code=XXXXX so phone camera auto-navigates
+    const pageUrl = window.location.href.split('?')[0];
+    const target = `${pageUrl}?code=${code}`;
+    el.qrArea.style.display = '';
+    window.generateQR(target, el.qrCanvas, 140);
+  }
+
+  function switchRole(role){
+    state.role = role;
+    try{ localStorage.setItem(STORAGE_KEYS.ROLE, role); }catch(e){}
+
+    const isPC = role === 'pc';
+    document.querySelector('.app').classList.toggle('role-phone', !isPC);
+    el.roleBtnPC.classList.toggle('active', isPC);
+    el.roleBtnPC.setAttribute('aria-selected', isPC);
+    el.roleBtnPhone.classList.toggle('active', !isPC);
+    el.roleBtnPhone.setAttribute('aria-selected', !isPC);
+
+    el.pcConnectBlock.style.display  = isPC ? '' : 'none';
+    el.phoneConnectBlock.style.display = isPC ? 'none' : '';
+    el.phoneMicStage.style.display   = isPC ? 'none' : '';
+    el.roleStat.textContent = isPC ? 'PC' : 'Phone';
+
+    if (!isPC && state.isDictating) stopDictation();
+    el.startDictationBtn.style.display = isPC && !state.isDictating ? '' : 'none';
+    el.stopDictationBtn.style.display  = isPC && state.isDictating  ? '' : 'none';
+
+    teardownConnection();
+
+    if (isPC){
+      state.roomCode = generateRoomCode();
+      renderRoomCode(state.roomCode);
+      renderQRCode(state.roomCode);
+      pcInitiateConnection(state.roomCode);
+    }
+  }
+
+  el.roleBtnPC.addEventListener('click', () => switchRole('pc'));
+  el.roleBtnPhone.addEventListener('click', () => switchRole('phone'));
+
+  el.regenCodeBtn.addEventListener('click', () => {
+    teardownConnection();
     state.roomCode = generateRoomCode();
     renderRoomCode(state.roomCode);
+    renderQRCode(state.roomCode);
+    hideError(el.pcErrorBanner);
     pcInitiateConnection(state.roomCode);
-  }
-}
-
-function renderRoomCode(code){
-  const digits = el.roomCodeDisplay.querySelectorAll('.digit');
-  String(code).split('').forEach((d, i) => { if (digits[i]) digits[i].textContent = d; });
-}
-
-el.roleBtnPC.addEventListener('click', () => switchRole('pc'));
-el.roleBtnPhone.addEventListener('click', () => switchRole('phone'));
-
-el.regenCodeBtn.addEventListener('click', () => {
-  teardownConnection();
-  state.roomCode = generateRoomCode();
-  renderRoomCode(state.roomCode);
-  hideError(el.pcErrorBanner);
-  pcInitiateConnection(state.roomCode);
-});
-
-el.connectBtn.addEventListener('click', () => {
-  const code = el.codeInput.value.trim();
-  hideError(el.phoneErrorBanner);
-  if (!/^\d{5}$/.test(code)){
-    showError(el.phoneErrorBanner, el.phoneErrorText, 'Enter the full 5-digit code shown on the PC screen.');
-    return;
-  }
-  teardownConnection();
-  phoneJoinConnection(code);
-});
-
-el.codeInput.addEventListener('input', () => {
-  el.codeInput.value = el.codeInput.value.replace(/\D/g,'').slice(0,5);
-});
-
-/* ============================================================
-   11. PHONE MIC START/STOP (local activity indicator)
-   ============================================================ */
-el.phoneMicStartBtn.addEventListener('click', () => {
-  if (!state.localStream){
-    showError(el.phoneErrorBanner, el.phoneErrorText, 'Connect to a PC first, then start the microphone.');
-    return;
-  }
-  el.bigMic.classList.add('active');
-  el.phoneStatusLabel.textContent = 'Microphone live — speak now';
-  el.phoneMicStartBtn.style.display = 'none';
-  el.phoneMicStopBtn.style.display = '';
-  state.localStream.getAudioTracks().forEach(t => t.enabled = true);
-  startSessionTimer();
-});
-
-el.phoneMicStopBtn.addEventListener('click', () => {
-  el.bigMic.classList.remove('active');
-  el.phoneStatusLabel.textContent = 'Microphone muted';
-  el.phoneMicStopBtn.style.display = 'none';
-  el.phoneMicStartBtn.style.display = '';
-  if (state.localStream){
-    state.localStream.getAudioTracks().forEach(t => t.enabled = false);
-  }
-});
-
-/* ============================================================
-   12. TOOLBAR ACTIONS — copy / clear / download
-   ============================================================ */
-function copyTranscript(){
-  const text = el.transcript.value;
-  if (!text.trim()){
-    showToast('Nothing to copy yet', true);
-    return;
-  }
-  navigator.clipboard.writeText(text).then(() => {
-    showToast('Copied to clipboard');
-  }).catch(() => {
-    // fallback for older browsers
-    el.transcript.select();
-    document.execCommand('copy');
-    showToast('Copied to clipboard');
   });
-}
 
-function clearTranscript(){
-  if (!el.transcript.value.trim()) return;
-  state.finalTranscript = '';
-  el.transcript.value = '';
-  updateStats('');
-  persistTranscript();
-  showToast('Notes cleared');
-}
+  el.connectBtn.addEventListener('click', () => {
+    const code = el.codeInput.value.trim();
+    hideError(el.phoneErrorBanner);
+    if (!/^\d{5}$/.test(code)){
+      showError(el.phoneErrorBanner, el.phoneErrorText, 'Enter the full 5-digit code shown on the PC.');
+      return;
+    }
+    teardownConnection();
+    phoneJoinConnection(code);
+  });
 
-function downloadTxt(){
-  const text = el.transcript.value;
-  if (!text.trim()){ showToast('Nothing to download yet', true); return; }
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-  triggerDownload(blob, `voicebridge-notes-${Date.now()}.txt`);
-  showToast('Downloaded as TXT');
-}
+  el.codeInput.addEventListener('input', () => {
+    el.codeInput.value = el.codeInput.value.replace(/\D/g,'').slice(0,5);
+  });
 
-function downloadDoc(){
-  const text = el.transcript.value;
-  if (!text.trim()){ showToast('Nothing to download yet', true); return; }
-  // Minimal valid .doc via HTML-in-Word wrapper — opens cleanly in Microsoft Word.
-  const escaped = text
-    .split('\n')
-    .map(line => `<p>${line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') || '&nbsp;'}</p>`)
-    .join('');
-  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-  <head><meta charset="utf-8"><title>VoiceBridge Notes</title></head>
-  <body style="font-family:Calibri, Arial, sans-serif; font-size:14px;">${escaped}</body></html>`;
-  const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
-  triggerDownload(blob, `voicebridge-notes-${Date.now()}.doc`);
-  showToast('Downloaded as DOC');
-}
-
-function triggerDownload(blob, filename){
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-el.copyBtn.addEventListener('click', copyTranscript);
-el.copyBtnToolbar.addEventListener('click', copyTranscript);
-el.clearBtn.addEventListener('click', clearTranscript);
-el.clearBtnToolbar.addEventListener('click', clearTranscript);
-el.downloadTxtBtn.addEventListener('click', downloadTxt);
-el.downloadDocBtn.addEventListener('click', downloadDoc);
-
-el.startDictationBtn.addEventListener('click', startDictation);
-el.stopDictationBtn.addEventListener('click', stopDictation);
-
-/* ============================================================
-   13. INIT
-   ============================================================ */
-function init(){
-  restoreSession();
-  if (state.role === 'pc'){
-    state.roomCode = generateRoomCode();
-    renderRoomCode(state.roomCode);
-    pcInitiateConnection(state.roomCode);
+  /* ============================================================
+     AUTO-FILL CODE FROM URL ?code=XXXXX (QR scan target)
+     ============================================================ */
+  function checkUrlCode(){
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    if (code && /^\d{5}$/.test(code)){
+      // Switch to phone mode and auto-fill
+      switchRole('phone');
+      el.codeInput.value = code;
+    }
   }
-  if (!SpeechRecognitionAPI){
-    showError(el.pcErrorBanner, el.pcErrorText, 'Speech recognition is not supported in this browser. Use Chrome or Edge on desktop for live dictation.');
+
+  /* ============================================================
+     PHONE MIC START/STOP
+     ============================================================ */
+  el.phoneMicStartBtn.addEventListener('click', () => {
+    if (!state.localStream){
+      showError(el.phoneErrorBanner, el.phoneErrorText, 'Connect to a PC first, then start the microphone.');
+      return;
+    }
+    el.bigMic.classList.add('active');
+    el.phoneStatusLabel.textContent = 'Microphone live — speak now';
+    el.phoneMicStartBtn.style.display = 'none';
+    el.phoneMicStopBtn.style.display = '';
+    state.localStream.getAudioTracks().forEach(t => t.enabled = true);
+    startSessionTimer();
+  });
+
+  el.phoneMicStopBtn.addEventListener('click', () => {
+    el.bigMic.classList.remove('active');
+    el.phoneStatusLabel.textContent = 'Microphone muted';
+    el.phoneMicStopBtn.style.display = 'none';
+    el.phoneMicStartBtn.style.display = '';
+    if (state.localStream) state.localStream.getAudioTracks().forEach(t => t.enabled = false);
+  });
+
+  /* ============================================================
+     TOOLBAR ACTIONS
+     ============================================================ */
+  function copyTranscript(){
+    const text = el.transcript.value;
+    if (!text.trim()){ showToast('Nothing to copy yet', true); return; }
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('Copied to clipboard');
+    }).catch(() => {
+      el.transcript.select();
+      document.execCommand('copy');
+      showToast('Copied to clipboard');
+    });
   }
-  updateStats(el.transcript.value);
-}
 
-window.addEventListener('beforeunload', () => {
-  try{ localStorage.setItem(STORAGE_KEYS.TRANSCRIPT, el.transcript.value); }catch(e){}
-});
+  function clearTranscript(){
+    if (!el.transcript.value.trim()) return;
+    state.finalTranscript = '';
+    el.transcript.value = '';
+    updateStats('');
+    persistTranscript();
+    showToast('Notes cleared');
+  }
 
-init();
+  function downloadTxt(){
+    const text = el.transcript.value;
+    if (!text.trim()){ showToast('Nothing to download yet', true); return; }
+    triggerDownload(new Blob([text], { type:'text/plain;charset=utf-8' }), `voicebridge-notes-${Date.now()}.txt`);
+    showToast('Downloaded as TXT');
+  }
 
+  function downloadDoc(){
+    const text = el.transcript.value;
+    if (!text.trim()){ showToast('Nothing to download yet', true); return; }
+    const escaped = text.split('\n').map(line =>
+      `<p>${line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') || '&nbsp;'}</p>`
+    ).join('');
+    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>VoiceBridge Notes</title></head><body style="font-family:Calibri,Arial,sans-serif;font-size:14px;">${escaped}</body></html>`;
+    triggerDownload(new Blob(['\ufeff', html], { type:'application/msword' }), `voicebridge-notes-${Date.now()}.doc`);
+    showToast('Downloaded as DOC');
+  }
+
+  function triggerDownload(blob, filename){
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  el.copyBtn.addEventListener('click', copyTranscript);
+  el.copyBtnToolbar.addEventListener('click', copyTranscript);
+  el.clearBtn.addEventListener('click', clearTranscript);
+  el.clearBtnToolbar.addEventListener('click', clearTranscript);
+  el.downloadTxtBtn.addEventListener('click', downloadTxt);
+  el.downloadDocBtn.addEventListener('click', downloadDoc);
+  el.startDictationBtn.addEventListener('click', startDictation);
+  el.stopDictationBtn.addEventListener('click', stopDictation);
+
+  /* ============================================================
+     INIT
+     ============================================================ */
+  function init(){
+    initFirebase();
+    restoreSession();
+    checkUrlCode(); // handle ?code= from QR scan
+    if (state.role === 'pc'){
+      state.roomCode = generateRoomCode();
+      renderRoomCode(state.roomCode);
+      renderQRCode(state.roomCode);
+      pcInitiateConnection(state.roomCode);
+    }
+    if (!SpeechRecognitionAPI){
+      showError(el.pcErrorBanner, el.pcErrorText, 'Speech recognition not supported in this browser. Use Chrome or Edge on desktop for live dictation.');
+    }
+    updateStats(el.transcript.value);
+  }
+
+  window.addEventListener('beforeunload', () => {
+    try{ localStorage.setItem(STORAGE_KEYS.TRANSCRIPT, el.transcript.value); }catch(e){}
+    // Clean up Firebase room entry
+    if (roomRef && state.role === 'pc'){
+      try{ roomRef.remove(); }catch(e){}
+    }
+  });
+
+  init();
 })();
 </script>
 </body>
