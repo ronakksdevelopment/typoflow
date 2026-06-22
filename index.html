@@ -1,1870 +1,969 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
-<title>VoiceBridge Notes — Speak. It writes.</title>
-<meta name="description" content="Turn your phone into a wireless mic for your PC and get clean, formatted text as you speak.">
-
-<!-- Firebase v9 compat (CDN — works on GitHub Pages, no build step) -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-
-<style>
-/* ============================================================
-   VOICEBRIDGE NOTES — DESIGN SYSTEM
-   ============================================================ */
-:root{
-  --void:        #07080b;
-  --void-2:      #0c0e13;
-  --surface:     rgba(255,255,255,0.035);
-  --surface-2:   rgba(255,255,255,0.06);
-  --surface-hi:  rgba(255,255,255,0.09);
-  --border:      rgba(255,255,255,0.08);
-  --border-hi:   rgba(255,255,255,0.16);
-  --text-hi:     #eef0f4;
-  --text-mid:    #a7adc1;
-  --text-low:    #686f86;
-  --signal:      #5eead4;
-  --signal-dim:  #3fa896;
-  --signal-glow: rgba(94,234,212,0.35);
-  --listening:   #fbbf24;
-  --listening-glow: rgba(251,191,36,0.35);
-  --danger:      #f87171;
-  --danger-glow: rgba(248,113,113,0.3);
-  --ok:          #5eead4;
-  --font-display: 'Space Grotesk', sans-serif;
-  --font-body:    'Inter', sans-serif;
-  --font-mono:    'JetBrains Mono', monospace;
-  --r-sm: 8px;
-  --r-md: 14px;
-  --r-lg: 20px;
-  --shadow-card: 0 8px 32px rgba(0,0,0,0.45);
-  --ease: cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-
-*{ margin:0; padding:0; box-sizing:border-box; }
-*:focus-visible{ outline:2px solid var(--signal); outline-offset:2px; border-radius:4px; }
-
-html,body{
-  height:100%;
-  background:var(--void);
-  color:var(--text-hi);
-  font-family:var(--font-body);
-  -webkit-font-smoothing:antialiased;
-  overflow-x:hidden;
-}
-
-body::before{
-  content:'';
-  position:fixed; inset:0;
-  background:
-    radial-gradient(ellipse 900px 600px at 18% -10%, rgba(94,234,212,0.07), transparent 60%),
-    radial-gradient(ellipse 700px 500px at 100% 10%, rgba(251,191,36,0.04), transparent 60%),
-    var(--void);
-  z-index:-1;
-  pointer-events:none;
-}
-
-::-webkit-scrollbar{ width:10px; height:10px; }
-::-webkit-scrollbar-track{ background:transparent; }
-::-webkit-scrollbar-thumb{ background:var(--surface-2); border-radius:8px; }
-::-webkit-scrollbar-thumb:hover{ background:var(--surface-hi); }
-
-.glass{
-  background:linear-gradient(160deg, var(--surface) 0%, rgba(255,255,255,0.015) 100%);
-  border:1px solid var(--border);
-  border-radius:var(--r-lg);
-  backdrop-filter:blur(20px) saturate(140%);
-  -webkit-backdrop-filter:blur(20px) saturate(140%);
-  box-shadow:var(--shadow-card);
-}
-
-.eyebrow{
-  font-family:var(--font-mono);
-  font-size:11px;
-  letter-spacing:0.14em;
-  text-transform:uppercase;
-  color:var(--text-low);
-  font-weight:600;
-}
-
-.app{
-  height:100vh;
-  display:flex;
-  flex-direction:column;
-  overflow:hidden;
-}
-
-/* HEADER */
-.app-header{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:16px;
-  padding:16px 28px;
-  border-bottom:1px solid var(--border);
-  background:rgba(7,8,11,0.7);
-  backdrop-filter:blur(16px);
-  position:sticky;
-  top:0;
-  z-index:50;
-}
-
-.brand{ display:flex; align-items:center; gap:12px; }
-
-.brand-mark{
-  position:relative;
-  width:38px; height:38px;
-  border-radius:11px;
-  display:flex; align-items:center; justify-content:center;
-  background:linear-gradient(150deg, rgba(94,234,212,0.18), rgba(94,234,212,0.03));
-  border:1px solid rgba(94,234,212,0.3);
-  flex-shrink:0;
-}
-.brand-mark svg{ width:20px; height:20px; }
-
-.brand-text h1{
-  font-family:var(--font-display);
-  font-size:17px;
-  font-weight:700;
-  letter-spacing:-0.01em;
-  line-height:1.1;
-}
-.brand-text p{
-  font-family:var(--font-mono);
-  font-size:10.5px;
-  color:var(--text-low);
-  letter-spacing:0.06em;
-  margin-top:1px;
-}
-
-.role-toggle{
-  display:flex;
-  background:var(--surface);
-  border:1px solid var(--border);
-  border-radius:999px;
-  padding:3px;
-  gap:2px;
-}
-.role-toggle button{
-  font-family:var(--font-mono);
-  font-size:11.5px;
-  font-weight:600;
-  letter-spacing:0.03em;
-  padding:7px 16px;
-  border-radius:999px;
-  border:none;
-  background:transparent;
-  color:var(--text-mid);
-  cursor:pointer;
-  transition:all 0.25s var(--ease);
-}
-.role-toggle button.active{
-  background:var(--surface-hi);
-  color:var(--text-hi);
-  box-shadow:inset 0 0 0 1px var(--border-hi);
-}
-
-.status-pill{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  padding:7px 14px 7px 10px;
-  border-radius:999px;
-  background:var(--surface);
-  border:1px solid var(--border);
-  font-family:var(--font-mono);
-  font-size:11.5px;
-  font-weight:500;
-  letter-spacing:0.02em;
-  white-space:nowrap;
-}
-.status-dot{
-  width:7px; height:7px;
-  border-radius:50%;
-  background:var(--text-low);
-  flex-shrink:0;
-  transition:background 0.3s;
-}
-.status-pill[data-state="waiting"] .status-dot{ background:var(--text-low); }
-.status-pill[data-state="connecting"] .status-dot{
-  background:var(--listening);
-  box-shadow:0 0 0 0 var(--listening-glow);
-  animation:dot-pulse 1.1s infinite;
-}
-.status-pill[data-state="connected"] .status-dot{
-  background:var(--signal);
-  box-shadow:0 0 8px var(--signal-glow);
-}
-.status-pill[data-state="disconnected"] .status-dot{ background:var(--danger); }
-.status-pill[data-state="connecting"]{ color:var(--listening); border-color:rgba(251,191,36,0.25); }
-.status-pill[data-state="connected"]{ color:var(--signal); border-color:rgba(94,234,212,0.25); }
-.status-pill[data-state="disconnected"]{ color:var(--danger); border-color:rgba(248,113,113,0.25); }
-
-@keyframes dot-pulse{
-  0%{ box-shadow:0 0 0 0 var(--listening-glow); }
-  70%{ box-shadow:0 0 0 6px transparent; }
-  100%{ box-shadow:0 0 0 0 transparent; }
-}
-
-/* LAYOUT */
-.layout{
-  flex:1;
-  min-height:0;
-  overflow-y:auto;
-  display:grid;
-  grid-template-columns:280px 1fr 260px;
-  gap:18px;
-  padding:20px 28px;
-  max-width:1480px;
-  margin:0 auto;
-  width:100%;
-  align-items:start;
-}
-
-.panel{
-  padding:20px;
-  display:flex;
-  flex-direction:column;
-  gap:18px;
-}
-
-.panel-title{
-  font-family:var(--font-display);
-  font-size:13.5px;
-  font-weight:700;
-  letter-spacing:0.01em;
-  display:flex;
-  align-items:center;
-  gap:8px;
-}
-.panel-title svg{ width:15px; height:15px; color:var(--signal); flex-shrink:0; }
-
-.section-block{
-  display:flex;
-  flex-direction:column;
-  gap:10px;
-}
-
-.room-code-display{
-  display:flex;
-  gap:6px;
-  justify-content:center;
-  padding:18px 8px;
-  background:var(--void-2);
-  border:1px solid var(--border);
-  border-radius:var(--r-md);
-}
-.room-code-display .digit{
-  font-family:var(--font-mono);
-  font-size:26px;
-  font-weight:700;
-  color:var(--signal);
-  width:32px;
-  text-align:center;
-  text-shadow:0 0 18px var(--signal-glow);
-}
-
-/* QR Code area */
-.qr-area{
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  gap:8px;
-  padding:12px 8px;
-  background:var(--void-2);
-  border:1px solid var(--border);
-  border-radius:var(--r-md);
-}
-#qrCanvas{
-  border-radius:6px;
-  display:block;
-}
-.qr-hint{
-  font-family:var(--font-mono);
-  font-size:10px;
-  color:var(--text-low);
-  letter-spacing:0.05em;
-  text-align:center;
-}
-
-.room-code-input-row{ display:flex; gap:8px; }
-.code-input{
-  flex:1;
-  font-family:var(--font-mono);
-  font-size:20px;
-  letter-spacing:0.3em;
-  text-align:center;
-  padding:12px 8px;
-  background:var(--void-2);
-  border:1px solid var(--border);
-  border-radius:var(--r-sm);
-  color:var(--text-hi);
-  transition:border-color 0.2s;
-}
-.code-input::placeholder{ color:var(--text-low); letter-spacing:0.3em; }
-.code-input:focus{ border-color:var(--signal); }
-
-.btn{
-  font-family:var(--font-body);
-  font-size:13.5px;
-  font-weight:600;
-  padding:11px 16px;
-  border-radius:var(--r-sm);
-  border:1px solid var(--border);
-  background:var(--surface-2);
-  color:var(--text-hi);
-  cursor:pointer;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  gap:8px;
-  transition:all 0.2s var(--ease);
-  white-space:nowrap;
-}
-.btn svg{ width:15px; height:15px; flex-shrink:0; }
-.btn:hover{ background:var(--surface-hi); border-color:var(--border-hi); transform:translateY(-1px); }
-.btn:active{ transform:translateY(0); }
-.btn:disabled{ opacity:0.4; cursor:not-allowed; transform:none; }
-
-.btn-primary{
-  background:linear-gradient(150deg, var(--signal), var(--signal-dim));
-  color:#03241f;
-  border:none;
-  font-weight:700;
-}
-.btn-primary:hover{ filter:brightness(1.08); box-shadow:0 4px 20px var(--signal-glow); }
-
-.btn-danger{
-  background:rgba(248,113,113,0.12);
-  border-color:rgba(248,113,113,0.3);
-  color:var(--danger);
-}
-.btn-danger:hover{ background:rgba(248,113,113,0.18); border-color:var(--danger); }
-
-.btn-block{ width:100%; }
-.btn-sm{ padding:8px 12px; font-size:12.5px; }
-.btn-row{ display:flex; gap:8px; }
-
-.select-wrap{ position:relative; }
-.select-wrap::after{
-  content:'';
-  position:absolute;
-  right:14px; top:50%;
-  width:8px; height:8px;
-  border-right:1.5px solid var(--text-mid);
-  border-bottom:1.5px solid var(--text-mid);
-  transform:translateY(-65%) rotate(45deg);
-  pointer-events:none;
-}
-select{
-  width:100%;
-  font-family:var(--font-body);
-  font-size:13.5px;
-  font-weight:500;
-  padding:11px 36px 11px 14px;
-  background:var(--void-2);
-  border:1px solid var(--border);
-  border-radius:var(--r-sm);
-  color:var(--text-hi);
-  cursor:pointer;
-  appearance:none;
-  -webkit-appearance:none;
-  transition:border-color 0.2s;
-}
-select:hover, select:focus{ border-color:var(--border-hi); }
-select option{ background:var(--void-2); color:var(--text-hi); }
-
-label.field-label{
-  font-family:var(--font-mono);
-  font-size:10.5px;
-  letter-spacing:0.08em;
-  text-transform:uppercase;
-  color:var(--text-low);
-  font-weight:600;
-}
-
-.hint-text{
-  font-size:12px;
-  color:var(--text-low);
-  line-height:1.5;
-}
-
-/* EDITOR */
-.editor-panel{
-  display:flex;
-  flex-direction:column;
-  gap:0;
-  padding:0;
-  overflow:hidden;
-  min-height:560px;
-}
-
-.editor-toolbar{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:14px 18px;
-  border-bottom:1px solid var(--border);
-  gap:12px;
-  flex-wrap:wrap;
-}
-
-.listening-indicator{
-  display:flex;
-  align-items:center;
-  gap:9px;
-  font-family:var(--font-mono);
-  font-size:12px;
-  font-weight:600;
-  color:var(--text-low);
-  letter-spacing:0.02em;
-  transition:color 0.3s;
-}
-.listening-indicator.active{ color:var(--listening); }
-
-.mic-orb{
-  position:relative;
-  width:22px; height:22px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  flex-shrink:0;
-}
-.mic-orb .ring{
-  position:absolute;
-  inset:0;
-  border-radius:50%;
-  border:1.5px solid var(--text-low);
-  transition:border-color 0.3s;
-}
-.mic-orb.active .ring{
-  border-color:var(--listening);
-  animation:orb-ring 1.6s infinite var(--ease);
-}
-.mic-orb .core{
-  width:7px; height:7px;
-  border-radius:50%;
-  background:var(--text-low);
-  transition:background 0.3s, box-shadow 0.3s;
-}
-.mic-orb.active .core{
-  background:var(--listening);
-  box-shadow:0 0 10px var(--listening-glow);
-}
-@keyframes orb-ring{
-  0%{ transform:scale(0.6); opacity:0.9; }
-  100%{ transform:scale(1.9); opacity:0; }
-}
-
-.waveform{
-  display:flex;
-  align-items:center;
-  gap:3px;
-  height:22px;
-}
-.waveform .bar{
-  width:3px;
-  min-height:3px;
-  border-radius:2px;
-  background:var(--signal);
-  opacity:0.85;
-  transition:height 0.08s linear;
-}
-
-.editor-actions{ display:flex; gap:8px; }
-.icon-btn{
-  width:34px; height:34px;
-  display:flex; align-items:center; justify-content:center;
-  border-radius:var(--r-sm);
-  border:1px solid var(--border);
-  background:var(--surface);
-  color:var(--text-mid);
-  cursor:pointer;
-  transition:all 0.2s var(--ease);
-}
-.icon-btn:hover{ background:var(--surface-hi); color:var(--text-hi); border-color:var(--border-hi); }
-.icon-btn svg{ width:16px; height:16px; }
-
-.editor-body{
-  flex:1;
-  position:relative;
-  display:flex;
-}
-
-#transcript{
-  flex:1;
-  width:100%;
-  resize:none;
-  border:none;
-  outline:none;
-  background:transparent;
-  color:var(--text-hi);
-  font-family:var(--font-body);
-  font-size:17px;
-  line-height:1.75;
-  padding:24px 26px;
-  caret-color:var(--signal);
-}
-#transcript::placeholder{ color:var(--text-low); }
-
-.editor-footer{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:10px 18px;
-  border-top:1px solid var(--border);
-  font-family:var(--font-mono);
-  font-size:11px;
-  color:var(--text-low);
-  letter-spacing:0.02em;
-}
-.footer-stats{ display:flex; gap:16px; }
-.footer-stats span b{ color:var(--text-mid); font-weight:600; }
-
-/* RIGHT PANEL */
-.stat-row{
-  display:flex;
-  align-items:baseline;
-  justify-content:space-between;
-  padding:12px 14px;
-  background:var(--void-2);
-  border:1px solid var(--border);
-  border-radius:var(--r-sm);
-}
-.stat-row .label{
-  font-family:var(--font-mono);
-  font-size:11px;
-  letter-spacing:0.05em;
-  color:var(--text-low);
-  text-transform:uppercase;
-}
-.stat-row .value{
-  font-family:var(--font-mono);
-  font-size:19px;
-  font-weight:700;
-  color:var(--text-hi);
-}
-.stat-row .value.accent{ color:var(--signal); }
-
-.session-divider{
-  height:1px;
-  background:var(--border);
-  margin:2px 0;
-}
-
-/* PHONE MIC STAGE */
-.phone-mic-stage{
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  gap:18px;
-  padding:30px 14px;
-}
-.big-mic{
-  position:relative;
-  width:110px; height:110px;
-  border-radius:50%;
-  display:flex; align-items:center; justify-content:center;
-  background:radial-gradient(circle, rgba(94,234,212,0.12), transparent 70%);
-  border:1.5px solid var(--border);
-  transition:border-color 0.3s;
-}
-.big-mic.active{ border-color:var(--listening); }
-.big-mic .pulse-ring{
-  position:absolute; inset:0;
-  border-radius:50%;
-  border:1.5px solid var(--listening);
-  opacity:0;
-}
-.big-mic.active .pulse-ring{ animation:orb-ring 1.8s infinite var(--ease); }
-.big-mic svg{ width:42px; height:42px; color:var(--text-mid); transition:color 0.3s; }
-.big-mic.active svg{ color:var(--listening); }
-
-.phone-status-label{
-  font-family:var(--font-mono);
-  font-size:13px;
-  color:var(--text-mid);
-  letter-spacing:0.03em;
-}
-
-/* TOAST */
-.toast{
-  position:fixed;
-  bottom:90px;
-  left:50%;
-  transform:translateX(-50%) translateY(20px);
-  background:var(--void-2);
-  border:1px solid var(--signal);
-  color:var(--text-hi);
-  font-family:var(--font-body);
-  font-size:13.5px;
-  font-weight:500;
-  padding:11px 20px;
-  border-radius:999px;
-  box-shadow:0 8px 30px rgba(0,0,0,0.5), 0 0 0 1px rgba(94,234,212,0.15);
-  opacity:0;
-  pointer-events:none;
-  transition:opacity 0.3s var(--ease), transform 0.3s var(--ease);
-  z-index:200;
-  display:flex; align-items:center; gap:8px;
-  white-space:nowrap;
-}
-.toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
-.toast svg{ width:15px; height:15px; color:var(--signal); flex-shrink:0; }
-.toast.toast-error{ border-color:var(--danger); }
-.toast.toast-error svg{ color:var(--danger); }
-
-/* BOTTOM TOOLBAR */
-.toolbar{
-  position:sticky;
-  bottom:0;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  gap:10px;
-  padding:14px 28px;
-  border-top:1px solid var(--border);
-  background:rgba(7,8,11,0.78);
-  backdrop-filter:blur(16px);
-  flex-wrap:wrap;
-  z-index:40;
-}
-
-/* ERROR BANNER */
-.error-banner{
-  display:none;
-  align-items:flex-start;
-  gap:10px;
-  padding:12px 14px;
-  border-radius:var(--r-sm);
-  background:rgba(248,113,113,0.08);
-  border:1px solid rgba(248,113,113,0.3);
-  color:#fca5a5;
-  font-size:12.5px;
-  line-height:1.5;
-}
-.error-banner.show{ display:flex; }
-.error-banner svg{ width:16px; height:16px; flex-shrink:0; margin-top:1px; color:var(--danger); }
-
-/* INFO BANNER (blue/cyan) */
-.info-banner{
-  display:none;
-  align-items:flex-start;
-  gap:10px;
-  padding:12px 14px;
-  border-radius:var(--r-sm);
-  background:rgba(94,234,212,0.07);
-  border:1px solid rgba(94,234,212,0.25);
-  color:var(--signal);
-  font-size:12.5px;
-  line-height:1.5;
-}
-.info-banner.show{ display:flex; }
-.info-banner svg{ width:16px; height:16px; flex-shrink:0; margin-top:1px; color:var(--signal); }
-
-/* RESPONSIVE */
-@media (max-width: 1100px){
-  .layout{ grid-template-columns:1fr; }
-  .editor-panel{ order:-1; min-height:420px; }
-  .app.role-phone .editor-panel{ order:2; }
-  .app.role-phone #leftPanel{ order:-1; }
-}
-
-@media (max-width: 640px){
-  .app-header{ padding:12px 16px; flex-wrap:wrap; gap:10px; }
-  .brand-text p{ display:none; }
-  .layout{ padding:14px 14px; gap:14px; }
-  .toolbar{ padding:12px 14px; gap:8px; }
-  .toolbar .btn span.btn-label-full{ display:none; }
-  #transcript{ font-size:16px; padding:18px 16px; }
-  .role-toggle button{ padding:7px 12px; font-size:11px; }
-}
-
-.sr-only{
-  position:absolute; width:1px; height:1px;
-  overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap;
-}
-
-@media (prefers-reduced-motion: reduce){
-  *{ animation-duration:0.01ms !important; animation-iteration-count:1 !important; transition-duration:0.01ms !important; }
-}
-</style>
-</head>
-<body>
-<div class="app">
-
-  <!-- HEADER -->
-  <header class="app-header">
-    <div class="brand">
-      <div class="brand-mark">
-        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" stroke="#5eead4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M19 11a7 7 0 01-14 0M12 18v3" stroke="#5eead4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <div class="brand-text">
-        <h1>VoiceBridge Notes</h1>
-        <p>SPEAK&nbsp;&middot;&nbsp;BRIDGE&nbsp;&middot;&nbsp;TRANSCRIBE</p>
-      </div>
-    </div>
-
-    <div class="role-toggle" role="tablist" aria-label="Device role">
-      <button id="roleBtnPC" class="active" role="tab" aria-selected="true">PC&nbsp;Mode</button>
-      <button id="roleBtnPhone" role="tab" aria-selected="false">Phone&nbsp;Mode</button>
-    </div>
-
-    <div class="status-pill" id="statusPill" data-state="waiting">
-      <span class="status-dot"></span>
-      <span id="statusText">Waiting</span>
-    </div>
-  </header>
-
-  <!-- LAYOUT -->
-  <div class="layout">
-
-    <!-- LEFT PANEL -->
-    <aside class="panel glass" id="leftPanel">
-
-      <!-- PC Mode -->
-      <div id="pcConnectBlock" class="section-block">
-        <div class="panel-title">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M5 9h14M5 15h14M10 4L8 20M16 4l-2 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          Room Code
-        </div>
-        <div class="room-code-display" id="roomCodeDisplay" aria-live="polite">
-          <span class="digit">–</span><span class="digit">–</span><span class="digit">–</span><span class="digit">–</span><span class="digit">–</span>
-        </div>
-
-        <!-- QR code for easy phone scanning -->
-        <div class="qr-area" id="qrArea" style="display:none;">
-          <canvas id="qrCanvas" width="140" height="140"></canvas>
-          <span class="qr-hint">Scan with phone camera to auto-fill code</span>
-        </div>
-
-        <p class="hint-text">Show this code (or QR) to your phone running <b style="color:var(--text-mid)">Phone Mode</b> on the same URL.</p>
-        <div class="btn-row">
-          <button class="btn btn-block" id="regenCodeBtn">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M21 2v6h-6M3 22v-6h6M3.51 9a9 9 0 0114.85-3.36L21 8M20.49 15a9 9 0 01-14.85 3.36L3 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            New Code
-          </button>
-        </div>
-        <div class="info-banner" id="pcInfoBanner">
-          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v4M12 16h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          <span id="pcInfoText">—</span>
-        </div>
-        <div class="error-banner" id="pcErrorBanner">
-          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v4M12 16h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          <span id="pcErrorText">—</span>
-        </div>
-      </div>
-
-      <!-- Phone Mode -->
-      <div id="phoneConnectBlock" class="section-block" style="display:none;">
-        <div class="panel-title">
-          <svg viewBox="0 0 24 24" fill="none"><rect x="6" y="2" width="12" height="20" rx="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M11 18h2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          Connect to PC
-        </div>
-        <label class="field-label" for="codeInput">Enter 5-digit room code</label>
-        <div class="room-code-input-row">
-          <input type="text" id="codeInput" class="code-input" maxlength="5" inputmode="numeric" placeholder="00000" autocomplete="off">
-        </div>
-        <button class="btn btn-primary btn-block" id="connectBtn">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Connect
-        </button>
-        <div class="error-banner" id="phoneErrorBanner">
-          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v4M12 16h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          <span id="phoneErrorText">—</span>
-        </div>
-      </div>
-
-      <div class="session-divider"></div>
-
-      <!-- Language -->
-      <div class="section-block">
-        <div class="panel-title">
-          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.6"/><path d="M2 12h20M12 2a15 15 0 010 20 15 15 0 010-20z" stroke="currentColor" stroke-width="1.6"/></svg>
-          Language
-        </div>
-        <label class="field-label" for="langSelect">Recognition language</label>
-        <div class="select-wrap">
-          <select id="langSelect">
-            <option value="en-US">English (US)</option>
-            <option value="en-GB">English (UK)</option>
-            <option value="hi-IN">Hindi</option>
-            <option value="bn-IN">Bengali</option>
-            <option value="es-ES">Spanish</option>
-            <option value="fr-FR">French</option>
-            <option value="de-DE">German</option>
-            <option value="ja-JP">Japanese</option>
-            <option value="zh-CN">Chinese</option>
-          </select>
-        </div>
-        <p class="hint-text">Switch anytime — applies on the next sentence.</p>
-      </div>
-
-      <!-- Phone Mic Stage -->
-      <div id="phoneMicStage" class="phone-mic-stage" style="display:none;">
-        <div class="big-mic" id="bigMic">
-          <span class="pulse-ring"></span>
-          <svg viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 11a7 7 0 01-14 0M12 18v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </div>
-        <span class="phone-status-label" id="phoneStatusLabel">Microphone idle</span>
-        <div class="btn-row" style="width:100%;">
-          <button class="btn btn-primary btn-block" id="phoneMicStartBtn">Start Microphone</button>
-        </div>
-        <div class="btn-row" style="width:100%;">
-          <button class="btn btn-danger btn-block" id="phoneMicStopBtn" style="display:none;">Stop Microphone</button>
-        </div>
-      </div>
-
-    </aside>
-
-    <!-- CENTER: EDITOR -->
-    <main class="editor-panel glass">
-      <div class="editor-toolbar">
-        <div class="listening-indicator" id="listeningIndicator">
-          <span class="mic-orb" id="micOrb"><span class="ring"></span><span class="core"></span></span>
-          <span id="listeningText">Idle</span>
-        </div>
-        <div class="waveform" id="waveform" aria-hidden="true"></div>
-        <div class="editor-actions">
-          <button class="icon-btn" id="copyBtn" title="Copy text" aria-label="Copy text">
-            <svg viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="currentColor" stroke-width="1.6"/></svg>
-          </button>
-          <button class="icon-btn" id="clearBtn" title="Clear text" aria-label="Clear text">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0l-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-        </div>
-      </div>
-      <div class="editor-body">
-        <textarea id="transcript" placeholder="Live transcription will appear here as you speak. You can also type or edit freely." spellcheck="true"></textarea>
-      </div>
-      <div class="editor-footer">
-        <div class="footer-stats">
-          <span><b id="wordCountFoot">0</b>&nbsp;words</span>
-          <span><b id="charCountFoot">0</b>&nbsp;characters</span>
-        </div>
-        <span id="autosaveLabel">Autosaved</span>
-      </div>
-    </main>
-
-    <!-- RIGHT PANEL: STATS -->
-    <aside class="panel glass">
-      <div class="panel-title">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M3 3v18h18M7 14l4-4 3 3 5-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Statistics
-      </div>
-      <div class="stat-row">
-        <span class="label">Words</span>
-        <span class="value accent" id="wordCount">0</span>
-      </div>
-      <div class="stat-row">
-        <span class="label">Characters</span>
-        <span class="value" id="charCount">0</span>
-      </div>
-      <div class="stat-row">
-        <span class="label">Session</span>
-        <span class="value" id="sessionDuration">00:00</span>
-      </div>
-
-      <div class="session-divider"></div>
-
-      <div class="panel-title">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M10 13a5 5 0 007.07 0l2.83-2.83a5 5 0 00-7.07-7.07L11.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 00-7.07 0L4.1 13.83a5 5 0 007.07 7.07l1.41-1.41" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Link
-      </div>
-      <div class="stat-row">
-        <span class="label">Role</span>
-        <span class="value" id="roleStat" style="font-size:14px;">PC</span>
-      </div>
-      <div class="stat-row">
-        <span class="label">Peer</span>
-        <span class="value" id="peerStat" style="font-size:14px;">—</span>
-      </div>
-
-      <p class="hint-text">Audio streams directly between your devices over a WebRTC peer-to-peer connection. Signaling uses Firebase; audio never touches a server.</p>
-    </aside>
-
-  </div>
-
-  <!-- BOTTOM TOOLBAR -->
-  <div class="toolbar glass" style="border-radius:0;">
-    <button class="btn btn-primary" id="startDictationBtn">
-      <svg viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 11a7 7 0 01-14 0M12 18v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span class="btn-label-full">Start Dictation</span>
-    </button>
-    <button class="btn btn-danger" id="stopDictationBtn" style="display:none;">
-      <svg viewBox="0 0 24 24" fill="none"><rect x="6" y="6" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.8"/></svg>
-      <span class="btn-label-full">Stop Dictation</span>
-    </button>
-    <button class="btn" id="copyBtnToolbar">
-      <svg viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="currentColor" stroke-width="1.6"/></svg>
-      <span class="btn-label-full">Copy Text</span>
-    </button>
-    <button class="btn" id="clearBtnToolbar">
-      <svg viewBox="0 0 24 24" fill="none"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0l-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span class="btn-label-full">Clear Text</span>
-    </button>
-    <button class="btn" id="downloadTxtBtn">
-      <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span class="btn-label-full">Download TXT</span>
-    </button>
-    <button class="btn" id="downloadDocBtn">
-      <svg viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-      <span class="btn-label-full">Download DOC</span>
-    </button>
-  </div>
-
-</div>
-
-<!-- Toast -->
-<div class="toast" id="toast">
-  <svg viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-  <span id="toastText">Copied to clipboard</span>
-</div>
-
-<!-- ============================================================
-     QR CODE GENERATOR (pure JS, no dependency)
-     Tiny QR encoder using Canvas — encodes a numeric string
-     ============================================================ -->
-<script>
-/* Minimal QR encoder for 5-digit numeric codes (Mode: Numeric, Version 1, ECC L) */
-/* This is a self-contained micro-library; full QR spec subset only for what we need */
-(function(){
-  // We only need to encode a 5-digit number into a QR code scannable by phone cameras.
-  // We'll use a URL like: https://[page-url]?code=XXXXX so the camera app opens it.
-  // For simplicity we use a 3rd-party QR API (image) that works client-side.
-  window.generateQR = function(text, canvasEl, size){
-    // Use goqr.me free API — renders a QR PNG, then draw onto canvas
-    // Falls back gracefully if network unavailable
-    const url = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}&format=png&bgcolor=0c0e13&color=5eead4&qzone=1`;
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = function(){
-      const ctx = canvasEl.getContext('2d');
-      ctx.clearRect(0, 0, size, size);
-      ctx.drawImage(img, 0, 0, size, size);
-    };
-    img.onerror = function(){
-      // QR unavailable (offline) — hide the QR area silently
-      document.getElementById('qrArea').style.display = 'none';
-    };
-    img.src = url;
-  };
-})();
-</script>
-
-<script>
-/* ============================================================
-   VOICEBRIDGE NOTES — MAIN APPLICATION
-   Real cross-device P2P via Firebase Realtime Database signaling
-   ============================================================ */
-(() => {
-'use strict';
-
-/* ============================================================
-   FIREBASE CONFIG
-   ─────────────────────────────────────────────────────────────
-   INSTRUCTIONS: Replace the values below with your own Firebase
-   project. Steps:
-     1. Go to https://console.firebase.google.com
-     2. Create a project (free Spark plan is plenty)
-     3. Add a Web App → copy the firebaseConfig object here
-     4. In the Firebase console → Realtime Database → Create database
-        (start in test mode, or use the rules below)
-     5. Database Rules (Realtime Database → Rules tab):
-        {
-          "rules": {
-            "rooms": {
-              "$room": {
-                ".read": true,
-                ".write": true
-              }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoiceBridge | Pro Audio & Transcription</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+
+        // Tailwind Config
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: '#0f172a',
+                        glass: 'rgba(255, 255, 255, 0.05)',
+                        glassBorder: 'rgba(255, 255, 255, 0.1)',
+                        primary: '#3b82f6',
+                        accent: '#0ea5e9'
+                    },
+                    animation: {
+                        'pulse-fast': 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                    }
+                }
             }
-          }
         }
-   ============================================================ */
-  const FIREBASE_CONFIG = {
-    apiKey:            "AIzaSyDEMO_REPLACE_WITH_YOUR_KEY",
-    authDomain:        "your-project.firebaseapp.com",
-    databaseURL:       "https://your-project-default-rtdb.firebaseio.com",
-    projectId:         "your-project",
-    storageBucket:     "your-project.appspot.com",
-    messagingSenderId: "000000000000",
-    appId:             "1:000000000000:web:0000000000000000000000"
-  };
 
-  /* ── Firebase init ── */
-  let db = null;
-  let firebaseReady = false;
+        // --- Global State & Config ---
+        const rtcConfig = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:global.stun.twilio.com:3478' }
+            ]
+        };
 
-  function initFirebase(){
-    try{
-      firebase.initializeApp(FIREBASE_CONFIG);
-      db = firebase.database();
-      // Quick connectivity test
-      db.ref('.info/connected').on('value', snap => {
-        firebaseReady = snap.val() === true;
-        if (firebaseReady){
-          hideError(el.pcErrorBanner);
-          hideError(el.phoneErrorBanner);
+        const state = {
+            user: null,
+            role: null, // 'host' or 'guest'
+            roomCode: null,
+            nickname: null,
+            peers: {}, // { uid: { pc, dc, nickname, muted, stream, audioEl, analyser, dataArray } }
+            localStream: null,
+            recognition: null,
+            isRecording: false,
+            transcriptState: {
+                fullText: '',
+                interim: '',
+                lastInputTime: Date.now(),
+                wordCount: 0,
+                charCount: 0
+            },
+            startTime: null,
+            timerInterval: null
+        };
+
+        // --- Firebase Initialization ---
+        let app, auth, db, appId;
+
+        async function initFirebase() {
+            try {
+                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+                    // Fallback config for local testing if needed, but normally injected by environment
+                    projectId: "demo-project" 
+                };
+                appId = typeof __app_id !== 'undefined' ? __app_id : 'voicebridge_default';
+                
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        state.user = user;
+                        console.log("Authenticated as:", user.uid);
+                    }
+                });
+            } catch (error) {
+                console.error("Firebase Init Error:", error);
+                showNotification("Failed to connect to servers.", "error");
+            }
         }
-      });
-    }catch(e){
-      showError(el.pcErrorBanner, el.pcErrorText,
-        '⚠️ Firebase not configured. Open the HTML file and fill in your Firebase project credentials in the FIREBASE_CONFIG block (see comments). Without this, cross-device P2P signaling won\'t work.');
-      el.pcErrorBanner.classList.add('show');
-    }
-  }
 
-  /* ============================================================
-     STUN / ICE CONFIG
-     ============================================================ */
-  const ICE_SERVERS = [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun.cloudflare.com:3478' },
-    /* Free TURN from Open Relay Project — required for symmetric NAT */
-    {
-      urls:       'turn:openrelay.metered.ca:80',
-      username:   'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls:       'turn:openrelay.metered.ca:443',
-      username:   'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls:       'turn:openrelay.metered.ca:443?transport=tcp',
-      username:   'openrelayproject',
-      credential: 'openrelayproject'
-    }
-  ];
+        // --- Utility Functions ---
+        const $ = (id) => document.getElementById(id);
+        const generateCode = () => Math.floor(10000 + Math.random() * 90000).toString();
+        const showView = (id) => {
+            ['view-home', 'view-host', 'view-guest'].forEach(v => $(v).classList.add('hidden'));
+            $(id).classList.remove('hidden');
+        };
+        const formatTime = (seconds) => {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            return `${h > 0 ? h + ':' : ''}${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        };
 
-  /* ============================================================
-     CONSTANTS & STATE
-     ============================================================ */
-  const STORAGE_KEYS = {
-    TRANSCRIPT: 'vb_transcript',
-    LANGUAGE:   'vb_language',
-    ROLE:       'vb_role'
-  };
-
-  const state = {
-    role: 'pc',
-    roomCode: null,
-    connectionState: 'waiting',
-    isDictating: false,
-    isListening: false,
-    sessionStartTime: null,
-    sessionTimerHandle: null,
-    recognition: null,
-    shouldKeepListening: false,
-    finalTranscript: '',
-    localStream: null,
-    micAnalyser: null,
-    micAnimHandle: null,
-    pcId: null,   // unique ID for the PC peer (prevents race conditions)
-    phoneId: null // unique ID for the phone peer
-  };
-
-  /* ============================================================
-     DOM REFERENCES
-     ============================================================ */
-  const $ = id => document.getElementById(id);
-  const el = {
-    roleBtnPC:         $('roleBtnPC'),
-    roleBtnPhone:      $('roleBtnPhone'),
-    statusPill:        $('statusPill'),
-    statusText:        $('statusText'),
-    pcConnectBlock:    $('pcConnectBlock'),
-    phoneConnectBlock: $('phoneConnectBlock'),
-    roomCodeDisplay:   $('roomCodeDisplay'),
-    regenCodeBtn:      $('regenCodeBtn'),
-    pcErrorBanner:     $('pcErrorBanner'),
-    pcErrorText:       $('pcErrorText'),
-    pcInfoBanner:      $('pcInfoBanner'),
-    pcInfoText:        $('pcInfoText'),
-    codeInput:         $('codeInput'),
-    connectBtn:        $('connectBtn'),
-    phoneErrorBanner:  $('phoneErrorBanner'),
-    phoneErrorText:    $('phoneErrorText'),
-    langSelect:        $('langSelect'),
-    phoneMicStage:     $('phoneMicStage'),
-    bigMic:            $('bigMic'),
-    phoneStatusLabel:  $('phoneStatusLabel'),
-    phoneMicStartBtn:  $('phoneMicStartBtn'),
-    phoneMicStopBtn:   $('phoneMicStopBtn'),
-    listeningIndicator:$('listeningIndicator'),
-    micOrb:            $('micOrb'),
-    listeningText:     $('listeningText'),
-    waveform:          $('waveform'),
-    copyBtn:           $('copyBtn'),
-    clearBtn:          $('clearBtn'),
-    transcript:        $('transcript'),
-    wordCountFoot:     $('wordCountFoot'),
-    charCountFoot:     $('charCountFoot'),
-    autosaveLabel:     $('autosaveLabel'),
-    wordCount:         $('wordCount'),
-    charCount:         $('charCount'),
-    sessionDuration:   $('sessionDuration'),
-    roleStat:          $('roleStat'),
-    peerStat:          $('peerStat'),
-    startDictationBtn: $('startDictationBtn'),
-    stopDictationBtn:  $('stopDictationBtn'),
-    copyBtnToolbar:    $('copyBtnToolbar'),
-    clearBtnToolbar:   $('clearBtnToolbar'),
-    downloadTxtBtn:    $('downloadTxtBtn'),
-    downloadDocBtn:    $('downloadDocBtn'),
-    toast:             $('toast'),
-    toastText:         $('toastText'),
-    qrArea:            $('qrArea'),
-    qrCanvas:          $('qrCanvas')
-  };
-
-  /* ============================================================
-     UTILITIES
-     ============================================================ */
-  function generateRoomCode(){
-    return String(Math.floor(10000 + Math.random() * 90000));
-  }
-
-  function generatePeerId(){
-    return Math.random().toString(36).slice(2, 10);
-  }
-
-  function showToast(message, isError = false){
-    el.toastText.textContent = message;
-    el.toast.classList.toggle('toast-error', isError);
-    el.toast.classList.add('show');
-    clearTimeout(showToast._t);
-    showToast._t = setTimeout(() => el.toast.classList.remove('show'), 2600);
-  }
-
-  function showError(bannerEl, textEl, message){
-    textEl.textContent = message;
-    bannerEl.classList.add('show');
-  }
-  function hideError(bannerEl){ bannerEl.classList.remove('show'); }
-  function showInfo(message){
-    el.pcInfoText.textContent = message;
-    el.pcInfoBanner.classList.add('show');
-  }
-  function hideInfo(){ el.pcInfoBanner.classList.remove('show'); }
-
-  function setConnectionState(newState){
-    state.connectionState = newState;
-    el.statusPill.setAttribute('data-state', newState);
-    const labels = { waiting:'Waiting', connecting:'Connecting…', connected:'Connected', disconnected:'Disconnected' };
-    el.statusText.textContent = labels[newState] || newState;
-    el.peerStat.textContent = newState === 'connected' ? 'Linked ✓' : '—';
-    if (newState === 'connected') hideInfo();
-  }
-
-  function formatDuration(ms){
-    const s = Math.floor(ms / 1000);
-    const m = Math.floor(s / 60).toString().padStart(2,'0');
-    return `${m}:${(s % 60).toString().padStart(2,'0')}`;
-  }
-
-  function startSessionTimer(){
-    if (state.sessionTimerHandle) return;
-    if (!state.sessionStartTime) state.sessionStartTime = Date.now();
-    state.sessionTimerHandle = setInterval(() => {
-      el.sessionDuration.textContent = formatDuration(Date.now() - state.sessionStartTime);
-    }, 1000);
-  }
-  function stopSessionTimer(){
-    clearInterval(state.sessionTimerHandle);
-    state.sessionTimerHandle = null;
-  }
-
-  /* ============================================================
-     TEXT FORMATTING ENGINE
-     ============================================================ */
-  const SPOKEN_PUNCTUATION = [
-    [/\bfull stop\b/gi, '.'],
-    [/\bperiod\b/gi, '.'],
-    [/\bcomma\b/gi, ','],
-    [/\bquestion mark\b/gi, '?'],
-    [/\bexclamation (mark|point)\b/gi, '!'],
-    [/\bnew line\b/gi, '\n'],
-    [/\bnew paragraph\b/gi, '\n\n'],
-    [/\bcolon\b/gi, ':'],
-    [/\bsemicolon\b/gi, ';'],
-    [/\bopen quote\b/gi, '"'],
-    [/\bclose quote\b/gi, '"']
-  ];
-
-  function applySpokenPunctuation(text){
-    let out = text;
-    for (const [p, r] of SPOKEN_PUNCTUATION) out = out.replace(p, r);
-    return out;
-  }
-
-  function capitalizeSentences(text){
-    let out = text.replace(/(^\s*|[.!?]\s+|\n+\s*)([a-z])/g, (m, sep, ch) => sep + ch.toUpperCase());
-    out = out.replace(/\bi\b/g, 'I');
-    return out;
-  }
-
-  function tidyPunctuationSpacing(text){
-    return text
-      .replace(/\s+([,.!?;:])/g, '$1')
-      .replace(/([,.!?;:])(?=[A-Za-z])/g, '$1 ')
-      .replace(/[ \t]+/g, ' ')
-      .replace(/ \n/g, '\n')
-      .replace(/\n /g, '\n')
-      .replace(/\n{3,}/g, '\n\n');
-  }
-
-  function ensureTerminalPunctuation(text){
-    const t = text.replace(/\s+$/,'');
-    if (!t) return text;
-    if (/[.!?:,;]$/.test(t)) return text;
-    return t + '.';
-  }
-
-  function formatUtterance(raw){
-    if (!raw) return '';
-    let t = raw.trim();
-    t = applySpokenPunctuation(t);
-    t = tidyPunctuationSpacing(t);
-    t = capitalizeSentences(t);
-    return t;
-  }
-
-  /* ============================================================
-     TRANSCRIPT RENDERING
-     ============================================================ */
-  function renderTranscript(interimText){
-    const base = state.finalTranscript;
-    let display = base;
-    if (interimText && interimText.trim()){
-      const needsSpace = base && !/\s$/.test(base) ? ' ' : '';
-      display = base + needsSpace + interimText.trim();
-    }
-    el.transcript.value = display;
-    el.transcript.scrollTop = el.transcript.scrollHeight;
-    updateStats(display);
-  }
-
-  function commitFinalChunk(rawChunk){
-    const formatted = formatUtterance(rawChunk);
-    if (!formatted) return;
-    const needsSpace = state.finalTranscript && !/\s$/.test(state.finalTranscript) && !/^\n/.test(formatted) ? ' ' : '';
-    state.finalTranscript = ensureTerminalPunctuation(state.finalTranscript);
-    state.finalTranscript = (state.finalTranscript + needsSpace + formatted).trim();
-    state.finalTranscript = capitalizeSentences(tidyPunctuationSpacing(state.finalTranscript)) + ' ';
-    renderTranscript('');
-    persistTranscript();
-  }
-
-  function updateStats(text){
-    const trimmed = text.trim();
-    const words = trimmed.length ? trimmed.split(/\s+/).length : 0;
-    const chars = text.length;
-    el.wordCount.textContent = words;
-    el.charCount.textContent = chars;
-    el.wordCountFoot.textContent = words;
-    el.charCountFoot.textContent = chars;
-  }
-
-  /* ============================================================
-     PERSISTENCE
-     ============================================================ */
-  let persistTimer = null;
-  function persistTranscript(){
-    clearTimeout(persistTimer);
-    el.autosaveLabel.textContent = 'Saving…';
-    persistTimer = setTimeout(() => {
-      try{
-        localStorage.setItem(STORAGE_KEYS.TRANSCRIPT, el.transcript.value);
-        el.autosaveLabel.textContent = 'Autosaved';
-      }catch(e){
-        el.autosaveLabel.textContent = 'Autosave unavailable';
-      }
-    }, 400);
-  }
-
-  function restoreSession(){
-    try{
-      const savedText = localStorage.getItem(STORAGE_KEYS.TRANSCRIPT);
-      if (savedText){
-        state.finalTranscript = savedText;
-        el.transcript.value = savedText;
-        updateStats(savedText);
-      }
-      const savedLang = localStorage.getItem(STORAGE_KEYS.LANGUAGE);
-      if (savedLang) el.langSelect.value = savedLang;
-      const savedRole = localStorage.getItem(STORAGE_KEYS.ROLE);
-      if (savedRole === 'phone') switchRole('phone');
-    }catch(e){}
-  }
-
-  el.transcript.addEventListener('input', () => {
-    state.finalTranscript = el.transcript.value;
-    updateStats(el.transcript.value);
-    persistTranscript();
-  });
-
-  /* ============================================================
-     SPEECH RECOGNITION
-     ============================================================ */
-  const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-  function setListeningUI(active){
-    state.isListening = active;
-    el.micOrb.classList.toggle('active', active);
-    el.listeningIndicator.classList.toggle('active', active);
-    el.listeningText.textContent = active ? 'Listening…' : (state.isDictating ? 'Ready' : 'Idle');
-  }
-
-  function buildRecognition(){
-    const recognition = new SpeechRecognitionAPI();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = el.langSelect.value;
-
-    recognition.onresult = (event) => {
-      let interim = '';
-      for (let i = event.resultIndex; i < event.results.length; i++){
-        const result = event.results[i];
-        const text = result[0].transcript;
-        if (result.isFinal){
-          commitFinalChunk(text);
-          setListeningUI(false);
-        } else {
-          interim += text;
-          setListeningUI(true);
+        function showNotification(msg, type = 'info') {
+            const notif = document.createElement('div');
+            notif.className = `fixed top-4 right-4 p-4 rounded-xl backdrop-blur-md border text-white shadow-2xl transition-all transform translate-x-full z-50 flex items-center gap-3
+                ${type === 'error' ? 'bg-red-500/20 border-red-500/50' : 'bg-primary/20 border-primary/50'}`;
+            
+            notif.innerHTML = `
+                <i data-lucide="${type === 'error' ? 'alert-circle' : 'info'}" class="w-5 h-5"></i>
+                <span class="font-medium">${msg}</span>
+            `;
+            document.body.appendChild(notif);
+            lucide.createIcons();
+            
+            setTimeout(() => notif.classList.remove('translate-x-full'), 100);
+            setTimeout(() => {
+                notif.classList.add('translate-x-full');
+                setTimeout(() => notif.remove(), 300);
+            }, 3000);
         }
-      }
-      if (interim) renderTranscript(interim);
-    };
 
-    recognition.onerror = (event) => {
-      if (event.error === 'no-speech') return;
-      if (event.error === 'not-allowed' || event.error === 'permission-denied'){
-        showError(el.pcErrorBanner, el.pcErrorText, 'Microphone permission denied. Allow mic access in browser settings.');
-        stopDictation(); return;
-      }
-      if (event.error === 'audio-capture'){
-        showError(el.pcErrorBanner, el.pcErrorText, 'No mic input detected. Ensure phone is connected and microphone is active.');
-        stopDictation(); return;
-      }
-      showError(el.pcErrorBanner, el.pcErrorText, `Recognition error: ${event.error}. Retrying…`);
-    };
+        // Text cleaning engine
+        function cleanText(text) {
+            if (!text) return '';
+            // Remove filler words
+            let cleaned = text.replace(/\b(um|uh|hmm|mhm|like|you know|sort of|kind of)\b/gi, '').replace(/\s+/g, ' ').trim();
+            if (cleaned.length === 0) return '';
+            // Basic capitalization
+            cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+            // Basic punctuation if missing
+            if (!/[.!?]$/.test(cleaned)) cleaned += '.';
+            return cleaned;
+        }
 
-    recognition.onend = () => {
-      setListeningUI(false);
-      if (state.shouldKeepListening){
-        try{ recognition.start(); }catch(e){}
-      }
-    };
+        // --- Host Logic (PC Receiver) ---
+        async function startHost() {
+            if (!state.user) return showNotification("Connecting to servers...", "error");
+            
+            state.role = 'host';
+            state.roomCode = generateCode();
+            
+            showView('view-host');
+            $('host-room-code').textContent = state.roomCode;
+            $('host-room-code').dataset.full = state.roomCode.split('').join(' '); // For accessible reading
+            
+            state.startTime = Date.now();
+            state.timerInterval = setInterval(() => {
+                $('session-timer').textContent = formatTime((Date.now() - state.startTime) / 1000);
+            }, 1000);
 
-    return recognition;
-  }
+            // Create Room Doc
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'vb_rooms', state.roomCode);
+            await setDoc(roomRef, {
+                createdAt: Date.now(),
+                hostId: state.user.uid,
+                active: true
+            });
 
-  function startDictation(){
-    if (!SpeechRecognitionAPI){
-      showError(el.pcErrorBanner, el.pcErrorText, 'Speech recognition not supported in this browser. Use Chrome or Edge on desktop.');
-      return;
-    }
-    hideError(el.pcErrorBanner);
-    state.isDictating = true;
-    state.shouldKeepListening = true;
-    state.recognition = buildRecognition();
-    try{
-      state.recognition.start();
-    }catch(e){
-      showError(el.pcErrorBanner, el.pcErrorText, 'Could not start dictation. Try again in a moment.');
-      state.isDictating = false;
-      state.shouldKeepListening = false;
-      return;
-    }
-    el.startDictationBtn.style.display = 'none';
-    el.stopDictationBtn.style.display = '';
-    el.listeningText.textContent = 'Ready';
-    startSessionTimer();
-  }
+            // Listen for signaling messages specific to this room
+            const signalsCol = collection(db, 'artifacts', appId, 'public', 'data', `vb_signals_${state.roomCode}`);
+            
+            onSnapshot(signalsCol, (snapshot) => {
+                snapshot.docChanges().forEach(change => {
+                    if (change.type === 'added') {
+                        const data = change.doc.data();
+                        // Only process messages destined for the host
+                        if (data.targetId === state.user.uid) {
+                            handleHostSignal(data.senderId, data.type, data.payload, data.nickname);
+                        }
+                    }
+                });
+            }, (error) => {
+                console.error("Signal listen error:", error);
+            });
 
-  function stopDictation(){
-    state.isDictating = false;
-    state.shouldKeepListening = false;
-    if (state.recognition){ try{ state.recognition.stop(); }catch(e){} }
-    setListeningUI(false);
-    el.listeningText.textContent = 'Idle';
-    el.startDictationBtn.style.display = '';
-    el.stopDictationBtn.style.display = 'none';
-  }
+            // Start master visualizer
+            drawMasterWaveform();
+        }
 
-  el.langSelect.addEventListener('change', () => {
-    try{ localStorage.setItem(STORAGE_KEYS.LANGUAGE, el.langSelect.value); }catch(e){}
-    if (state.recognition && state.isDictating){
-      state.shouldKeepListening = false;
-      try{ state.recognition.stop(); }catch(e){}
-      setTimeout(() => { if (state.isDictating) startDictation(); }, 250);
-    }
-  });
+        async function handleHostSignal(guestId, type, payload, nickname) {
+            if (type === 'offer') {
+                showNotification(`${nickname || 'A guest'} is connecting...`);
+                
+                const pc = new RTCPeerConnection(rtcConfig);
+                state.peers[guestId] = { pc, nickname: nickname || 'Unknown Mic', muted: false, transcribe: true };
+                
+                // Handle Data Channel (Text)
+                pc.ondatachannel = (event) => {
+                    const dc = event.channel;
+                    state.peers[guestId].dc = dc;
+                    dc.onmessage = (e) => handleIncomingText(guestId, e.data);
+                };
 
-  /* ============================================================
-     WAVEFORM / AUDIO LEVEL METER
-     ============================================================ */
-  const WAVEFORM_BAR_COUNT = 24;
-  function buildWaveformBars(){
-    el.waveform.innerHTML = '';
-    for (let i = 0; i < WAVEFORM_BAR_COUNT; i++){
-      const bar = document.createElement('span');
-      bar.className = 'bar';
-      bar.style.height = '3px';
-      el.waveform.appendChild(bar);
-    }
-  }
-  buildWaveformBars();
+                // Handle Audio Track
+                pc.ontrack = (event) => {
+                    const stream = event.streams[0];
+                    setupAudioReceiver(guestId, stream);
+                };
 
-  function animateWaveformFromStream(stream){
-    try{
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      const audioCtx = new AudioCtx();
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 64;
-      source.connect(analyser);
-      const data = new Uint8Array(analyser.frequencyBinCount);
-      const bars = el.waveform.querySelectorAll('.bar');
-      function tick(){
-        analyser.getByteFrequencyData(data);
-        bars.forEach((bar, i) => {
-          const v = data[i % data.length] || 0;
-          bar.style.height = Math.max(3, Math.round((v / 255) * 22)) + 'px';
+                // Handle ICE
+                pc.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        sendSignal(guestId, 'candidate', event.candidate);
+                    }
+                };
+
+                pc.oniceconnectionstatechange = () => {
+                    updateMicStatusUI(guestId, pc.iceConnectionState);
+                    if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+                        removeGuest(guestId);
+                    }
+                };
+
+                await pc.setRemoteDescription(new RTCSessionDescription(payload));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                sendSignal(guestId, 'answer', answer);
+                
+                renderMicList();
+
+            } else if (type === 'candidate' && state.peers[guestId]) {
+                state.peers[guestId].pc.addIceCandidate(new RTCIceCandidate(payload)).catch(e => console.error(e));
+            }
+        }
+
+        function setupAudioReceiver(guestId, stream) {
+            const peer = state.peers[guestId];
+            peer.stream = stream;
+            
+            // Audio Element for playback
+            const audioEl = document.createElement('audio');
+            audioEl.srcObject = stream;
+            audioEl.autoplay = true;
+            peer.audioEl = audioEl;
+
+            // Audio Context for visualization
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const source = audioCtx.createMediaStreamSource(stream);
+            const analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 256;
+            source.connect(analyser);
+            
+            peer.analyser = analyser;
+            peer.dataArray = new Uint8Array(analyser.frequencyBinCount);
+            
+            // Do NOT connect to destination if we want custom mixing, but here we just let the audio element play it.
+            // Actually, playing via element and analysing via context is fine.
+        }
+
+        function handleIncomingText(guestId, messageStr) {
+            const peer = state.peers[guestId];
+            if (!peer || !peer.transcribe) return;
+
+            try {
+                const msg = JSON.parse(messageStr);
+                
+                if (msg.type === 'interim') {
+                    // Update visual indicator
+                    const micCard = $(`mic-${guestId}`);
+                    if(micCard) micCard.classList.add('border-primary', 'bg-primary/10');
+                    setTimeout(() => {
+                        if(micCard) micCard.classList.remove('border-primary', 'bg-primary/10');
+                    }, 500);
+                    
+                    state.transcriptState.interim = msg.text;
+                    updateTranscriptUI();
+                } else if (msg.type === 'final') {
+                    const cleaned = cleanText(msg.text);
+                    if (cleaned) {
+                        // Paragraph logic: If > 3 seconds since last input, new paragraph
+                        const now = Date.now();
+                        const prefix = (now - state.transcriptState.lastInputTime > 3000 && state.transcriptState.fullText.length > 0) ? '\n\n' : ' ';
+                        
+                        // Append text with speaker tag if multiple
+                        const speakerTag = Object.keys(state.peers).length > 1 ? `[${peer.nickname}] ` : '';
+                        
+                        state.transcriptState.fullText += `${prefix}${speakerTag}${cleaned}`;
+                        state.transcriptState.lastInputTime = now;
+                        state.transcriptState.interim = '';
+                        updateTranscriptUI();
+                        updateStats();
+                    }
+                }
+            } catch(e) { console.error("Message parse error", e); }
+        }
+
+        function renderMicList() {
+            const container = $('mic-list');
+            container.innerHTML = '';
+            
+            Object.entries(state.peers).forEach(([uid, peer]) => {
+                const div = document.createElement('div');
+                div.id = `mic-${uid}`;
+                div.className = 'bg-glass border border-glassBorder rounded-xl p-4 flex flex-col gap-3 transition-all';
+                
+                div.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="mic" class="w-4 h-4 text-gray-400" id="icon-${uid}"></i>
+                            <span class="font-medium text-sm">${peer.nickname}</span>
+                        </div>
+                        <span class="text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400" id="status-${uid}">Live</span>
+                    </div>
+                    
+                    <canvas id="canvas-${uid}" class="w-full h-12 bg-black/20 rounded-lg"></canvas>
+                    
+                    <div class="flex gap-2 mt-2">
+                        <button onclick="toggleMute('${uid}')" class="flex-1 bg-white/5 hover:bg-white/10 p-2 rounded-lg text-xs flex items-center justify-center gap-2 transition-colors">
+                            <i data-lucide="${peer.muted ? 'volume-x' : 'volume-2'}" class="w-3 h-3"></i> ${peer.muted ? 'Unmute' : 'Mute'}
+                        </button>
+                        <button onclick="toggleTranscribe('${uid}')" class="flex-1 ${peer.transcribe ? 'bg-primary/20 text-primary' : 'bg-white/5'} hover:bg-white/10 p-2 rounded-lg text-xs flex items-center justify-center gap-2 transition-colors">
+                            <i data-lucide="file-text" class="w-3 h-3"></i> T-Script
+                        </button>
+                        <button onclick="removeGuest('${uid}')" class="bg-red-500/20 hover:bg-red-500/30 text-red-400 p-2 rounded-lg transition-colors">
+                            <i data-lucide="power" class="w-3 h-3"></i>
+                        </button>
+                    </div>
+                `;
+                container.appendChild(div);
+                
+                // Setup individual visualizer loop
+                const canvas = $(`canvas-${uid}`);
+                if (canvas && peer.analyser) {
+                    const ctx = canvas.getContext('2d');
+                    const draw = () => {
+                        if (!state.peers[uid]) return;
+                        requestAnimationFrame(draw);
+                        peer.analyser.getByteFrequencyData(peer.dataArray);
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.fillStyle = 'rgba(59, 130, 246, 0.8)';
+                        const barWidth = (canvas.width / peer.dataArray.length) * 2.5;
+                        let x = 0;
+                        for(let i = 0; i < peer.dataArray.length; i++) {
+                            const barHeight = (peer.dataArray[i] / 255) * canvas.height;
+                            ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                            x += barWidth + 1;
+                        }
+                    };
+                    draw();
+                }
+            });
+            lucide.createIcons();
+            
+            if(Object.keys(state.peers).length === 0) {
+                container.innerHTML = `<div class="text-center text-gray-500 text-sm py-8 border border-dashed border-gray-700 rounded-xl">Waiting for microphones...</div>`;
+            }
+        }
+
+        window.toggleMute = (uid) => {
+            const peer = state.peers[uid];
+            if(peer && peer.audioEl) {
+                peer.muted = !peer.muted;
+                peer.audioEl.muted = peer.muted;
+                renderMicList();
+            }
+        };
+
+        window.toggleTranscribe = (uid) => {
+            if(state.peers[uid]) {
+                state.peers[uid].transcribe = !state.peers[uid].transcribe;
+                renderMicList();
+            }
+        };
+
+        window.removeGuest = (uid) => {
+            if (state.peers[uid]) {
+                state.peers[uid].pc.close();
+                if(state.peers[uid].audioEl) state.peers[uid].audioEl.remove();
+                delete state.peers[uid];
+                renderMicList();
+            }
+        };
+
+        function updateMicStatusUI(uid, status) {
+            const el = $(`status-${uid}`);
+            if(!el) return;
+            if(status === 'connected') {
+                el.className = 'text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400';
+                el.textContent = 'Live';
+            } else {
+                el.className = 'text-xs px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-400';
+                el.textContent = 'Lagging';
+            }
+        }
+
+        // --- Guest Logic (Mobile Mic) ---
+        async function joinAsGuest() {
+            const code = $('join-code').value.trim();
+            const nickname = $('join-nickname').value.trim();
+            
+            if(code.length !== 5) return showNotification("Enter a valid 5-digit code", "error");
+            if(!nickname) return showNotification("Please enter a nickname", "error");
+            if(!state.user) return showNotification("Authenticating...", "error");
+
+            $('btn-join').disabled = true;
+            $('btn-join').innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Connecting...';
+            lucide.createIcons();
+
+            try {
+                // Check if room exists
+                const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'vb_rooms', code);
+                const roomSnap = await getDoc(roomRef);
+                
+                if (!roomSnap.exists()) {
+                    throw new Error("Room not found");
+                }
+                
+                state.role = 'guest';
+                state.roomCode = code;
+                state.nickname = nickname;
+                const hostId = roomSnap.data().hostId;
+
+                // Get Microphone
+                state.localStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+                
+                // Setup WebRTC
+                const pc = new RTCPeerConnection(rtcConfig);
+                state.peers['host'] = { pc };
+
+                // Create Data Channel for Transcripts
+                const dc = pc.createDataChannel('transcript');
+                state.peers['host'].dc = dc;
+
+                // Add Audio
+                state.localStream.getTracks().forEach(track => pc.addTrack(track, state.localStream));
+
+                // Handle ICE
+                pc.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        sendSignal(hostId, 'candidate', event.candidate);
+                    }
+                };
+                
+                pc.oniceconnectionstatechange = () => {
+                    const statusEl = $('mobile-status');
+                    if(pc.iceConnectionState === 'connected') {
+                        statusEl.textContent = 'Connected & Live';
+                        statusEl.className = 'text-emerald-400 text-sm font-medium flex items-center justify-center gap-2';
+                    } else if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+                        statusEl.textContent = 'Disconnected';
+                        statusEl.className = 'text-red-400 text-sm font-medium flex items-center justify-center gap-2';
+                        stopGuest();
+                    }
+                };
+
+                // Create Offer
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                sendSignal(hostId, 'offer', offer);
+
+                // Listen for Answer/Candidates from Host
+                const signalsCol = collection(db, 'artifacts', appId, 'public', 'data', `vb_signals_${code}`);
+                onSnapshot(signalsCol, (snapshot) => {
+                    snapshot.docChanges().forEach(change => {
+                        if (change.type === 'added') {
+                            const data = change.doc.data();
+                            if (data.targetId === state.user.uid) {
+                                if(data.type === 'answer') {
+                                    pc.setRemoteDescription(new RTCSessionDescription(data.payload));
+                                    setupSpeechRecognition();
+                                    showGuestActiveView();
+                                } else if (data.type === 'candidate') {
+                                    pc.addIceCandidate(new RTCIceCandidate(data.payload)).catch(e=>console.error(e));
+                                }
+                            }
+                        }
+                    });
+                });
+
+            } catch (error) {
+                console.error(error);
+                showNotification(error.message || "Failed to join room", "error");
+                $('btn-join').disabled = false;
+                $('btn-join').innerHTML = 'Connect Microphone';
+            }
+        }
+
+        function setupSpeechRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                showNotification("Speech recognition not supported on this browser.", "error");
+                return;
+            }
+
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = document.documentElement.lang || 'en-US';
+
+            recognition.onstart = () => {
+                state.isRecording = true;
+                $('mobile-mic-btn').classList.add('bg-red-500', 'shadow-[0_0_30px_rgba(239,68,68,0.5)]');
+                $('mobile-mic-btn').classList.remove('bg-gray-700');
+                $('mobile-mic-icon').classList.add('animate-pulse-fast');
+            };
+
+            recognition.onresult = (event) => {
+                let interimTranscript = '';
+                let finalTranscript = '';
+
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript;
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
+                }
+
+                const dc = state.peers['host']?.dc;
+                if (dc && dc.readyState === 'open') {
+                    if (finalTranscript) {
+                        dc.send(JSON.stringify({ type: 'final', text: finalTranscript }));
+                    }
+                    if (interimTranscript) {
+                        dc.send(JSON.stringify({ type: 'interim', text: interimTranscript }));
+                    }
+                }
+                
+                // Local UI update
+                $('mobile-transcript').textContent = interimTranscript || "Listening...";
+            };
+
+            recognition.onerror = (event) => {
+                console.error("Speech recognition error", event.error);
+                if(event.error === 'not-allowed') stopGuest();
+            };
+
+            recognition.onend = () => {
+                // Auto restart if still supposed to be connected
+                if(state.role === 'guest' && state.peers['host']) {
+                    try { recognition.start(); } catch(e){}
+                }
+            };
+
+            try {
+                recognition.start();
+                state.recognition = recognition;
+            } catch(e){ console.error(e); }
+        }
+
+        window.toggleMobileMic = () => {
+            if(state.isRecording && state.recognition) {
+                state.recognition.stop();
+                state.isRecording = false;
+                $('mobile-mic-btn').classList.remove('bg-red-500', 'shadow-[0_0_30px_rgba(239,68,68,0.5)]');
+                $('mobile-mic-btn').classList.add('bg-gray-700');
+                $('mobile-mic-icon').classList.remove('animate-pulse-fast');
+                $('mobile-transcript').textContent = "Microphone Paused";
+            } else if (!state.isRecording && state.recognition) {
+                try { state.recognition.start(); } catch(e){}
+            }
+        };
+
+        function showGuestActiveView() {
+            showView('view-guest-active');
+            $('active-room-code').textContent = state.roomCode;
+            $('active-nickname').textContent = state.nickname;
+        }
+
+        window.stopGuest = () => {
+            if(state.recognition) { state.recognition.stop(); state.recognition = null; }
+            if(state.localStream) { state.localStream.getTracks().forEach(t => t.stop()); }
+            if(state.peers['host']) { state.peers['host'].pc.close(); delete state.peers['host']; }
+            state.role = null;
+            showView('view-home');
+            $('btn-join').disabled = false;
+            $('btn-join').innerHTML = 'Connect Microphone';
+        };
+
+        // --- Common Signaling ---
+        async function sendSignal(targetId, type, payload) {
+            const signalId = crypto.randomUUID();
+            const signalRef = doc(db, 'artifacts', appId, 'public', 'data', `vb_signals_${state.roomCode}`, signalId);
+            await setDoc(signalRef, {
+                senderId: state.user.uid,
+                targetId: targetId,
+                type: type,
+                payload: JSON.parse(JSON.stringify(payload)), // clean object for firestore
+                nickname: state.nickname,
+                timestamp: Date.now()
+            });
+        }
+
+        // --- UI & Text Management (Host) ---
+        function updateTranscriptUI() {
+            const output = $('transcript-output');
+            
+            // Format HTML for display
+            let html = state.transcriptState.fullText
+                .replace(/\n\n/g, '</p><p class="mt-4">')
+                .replace(/\[(.*?)\]/g, '<span class="text-xs font-semibold text-primary/80 uppercase tracking-wider">[$1]</span>');
+                
+            if (html.startsWith(' ')) html = html.substring(1);
+            html = `<p>${html}</p>`;
+            
+            if (state.transcriptState.interim) {
+                html += `<p class="mt-2 text-gray-400 italic">${state.transcriptState.interim}</p>`;
+            }
+            
+            output.innerHTML = html;
+            
+            // Auto scroll
+            const container = $('transcript-container');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function updateStats() {
+            const text = state.transcriptState.fullText;
+            const words = text.trim().split(/\s+/).filter(w => w.length > 0).length;
+            $('word-count').textContent = words;
+            $('char-count').textContent = text.length;
+        }
+
+        window.copyText = () => {
+            navigator.clipboard.writeText(state.transcriptState.fullText).then(() => {
+                showNotification("Text copied to clipboard");
+            });
+        };
+
+        window.clearText = () => {
+            state.transcriptState.fullText = '';
+            state.transcriptState.interim = '';
+            updateTranscriptUI();
+            updateStats();
+        };
+
+        window.downloadTxt = () => {
+            const blob = new Blob([state.transcriptState.fullText], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `VoiceBridge_Transcript_${new Date().toISOString().slice(0,10)}.txt`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+        };
+
+        window.downloadDocx = () => {
+            // Generates a .doc file using HTML, readable by MS Word.
+            const textHTML = state.transcriptState.fullText.replace(/\n\n/g, '<br><br>');
+            const html = `
+                <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+                <head><title>Transcript</title><style>body { font-family: Arial, sans-serif; }</style></head>
+                <body>
+                    <h2>VoiceBridge Transcript</h2>
+                    <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
+                    <hr>
+                    <div>${textHTML}</div>
+                </body>
+                </html>
+            `;
+            const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `VoiceBridge_Transcript_${new Date().toISOString().slice(0,10)}.doc`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+        };
+
+        // Master Waveform
+        function drawMasterWaveform() {
+            const canvas = $('master-canvas');
+            if(!canvas) return;
+            const ctx = canvas.getContext('2d');
+            
+            const draw = () => {
+                if(state.role !== 'host') return;
+                requestAnimationFrame(draw);
+                
+                // Clear
+                ctx.fillStyle = '#0f172a';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Aggregate data
+                let activePeers = Object.values(state.peers).filter(p => p.analyser && p.dataArray);
+                if(activePeers.length === 0) {
+                    // Draw idle line
+                    ctx.beginPath();
+                    ctx.moveTo(0, canvas.height/2);
+                    ctx.lineTo(canvas.width, canvas.height/2);
+                    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    return;
+                }
+
+                // Simple mix visualizer
+                const bufferLength = activePeers[0].dataArray.length;
+                const sliceWidth = canvas.width * 1.0 / bufferLength;
+                
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#3b82f6';
+                ctx.beginPath();
+                
+                let x = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    let sum = 0;
+                    activePeers.forEach(p => {
+                        p.analyser.getByteTimeDomainData(p.dataArray); // Use time domain for waveform
+                        sum += p.dataArray[i];
+                    });
+                    const v = (sum / activePeers.length) / 128.0;
+                    const y = v * canvas.height / 2;
+
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                    x += sliceWidth;
+                }
+                ctx.lineTo(canvas.width, canvas.height / 2);
+                ctx.stroke();
+            };
+            draw();
+        }
+
+        // --- Event Listeners & Init ---
+        document.addEventListener('DOMContentLoaded', () => {
+            initFirebase();
+            lucide.createIcons();
+
+            $('btn-select-pc').addEventListener('click', startHost);
+            $('btn-select-mobile').addEventListener('click', () => showView('view-guest-setup'));
+            $('btn-back-home').addEventListener('click', () => showView('view-home'));
+            $('btn-join').addEventListener('click', joinAsGuest);
         });
-        state.micAnimHandle = requestAnimationFrame(tick);
-      }
-      tick();
-      state.micAnalyser = { audioCtx, analyser };
-    }catch(e){}
-  }
 
-  function stopWaveformAnimation(){
-    if (state.micAnimHandle) cancelAnimationFrame(state.micAnimHandle);
-    state.micAnimHandle = null;
-    if (state.micAnalyser){
-      try{ state.micAnalyser.audioCtx.close(); }catch(e){}
-      state.micAnalyser = null;
-    }
-    el.waveform.querySelectorAll('.bar').forEach(bar => bar.style.height = '3px');
-  }
+    </script>
+    <style>
+        /* Custom Scrollbar for Transcript */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 8px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 8px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+        
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-dark text-slate-200 font-sans min-h-screen overflow-x-hidden selection:bg-primary/30">
 
-  /* ============================================================
-     FIREBASE SIGNALING — cross-device WebRTC
-     ─────────────────────────────────────────────────────────────
-     Schema under  /rooms/{code}/:
-       pcId         — string, set by PC when it creates the room
-       offer        — RTCSessionDescription (set by PC)
-       answer       — RTCSessionDescription (set by Phone)
-       offerCandidates/{key}  — ICE candidates from PC
-       answerCandidates/{key} — ICE candidates from Phone
-       ts           — room creation timestamp (for TTL cleanup)
-     ============================================================ */
+    <!-- Background Decoration -->
+    <div class="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+        <div class="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-primary/10 blur-[120px]"></div>
+        <div class="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-accent/10 blur-[120px]"></div>
+    </div>
 
-  let pc = null;              // RTCPeerConnection
-  let roomRef = null;         // Firebase ref for current room
-  let offerCandidatesRef = null;
-  let answerCandidatesRef = null;
-  let connectionTimeoutHandle = null;
+    <!-- Main Container -->
+    <div class="relative z-10 w-full min-h-screen flex flex-col">
+        
+        <!-- Header -->
+        <header class="w-full p-4 md:p-6 flex justify-between items-center glass-panel border-b-0 sticky top-0 z-50">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
+                    <i data-lucide="waves" class="w-5 h-5 text-white"></i>
+                </div>
+                <h1 class="text-xl font-bold tracking-tight text-white">VoiceBridge</h1>
+            </div>
+            <div class="flex items-center gap-4 text-sm font-medium">
+                <span class="flex items-center gap-2 text-emerald-400 bg-emerald-400/10 px-3 py-1.5 rounded-full">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Systems Online
+                </span>
+            </div>
+        </header>
 
-  // Listeners to detach on teardown
-  const activeListeners = [];
-  function trackListener(ref, event, fn){ ref.on(event, fn); activeListeners.push({ ref, event, fn }); }
-  function detachAllListeners(){ activeListeners.forEach(({ ref, event, fn }) => ref.off(event, fn)); activeListeners.length = 0; }
+        <!-- VIEW: HOME (Mode Selection) -->
+        <main id="view-home" class="flex-1 flex flex-col items-center justify-center p-6 animate-in fade-in duration-500">
+            <div class="max-w-2xl text-center space-y-6 mb-12">
+                <h2 class="text-4xl md:text-6xl font-extrabold text-white tracking-tight">Professional Audio <br><span class="text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent">Transcription Network</span></h2>
+                <p class="text-slate-400 text-lg max-w-xl mx-auto">Turn your mobile devices into high-fidelity wireless microphones feeding a real-time, AI-cleaned transcription dashboard.</p>
+            </div>
 
-  function createPeerConnection(){
-    const conn = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    conn.onconnectionstatechange = () => {
-      const s = conn.connectionState;
-      if (s === 'connected'){
-        clearTimeout(connectionTimeoutHandle);
-        setConnectionState('connected');
-        hideError(el.pcErrorBanner);
-        hideError(el.phoneErrorBanner);
-        showToast('Devices connected!');
-      } else if (s === 'disconnected' || s === 'failed'){
-        setConnectionState('disconnected');
-        stopWaveformAnimation();
-        showToast('Connection lost. Try a new code.', true);
-      } else if (s === 'connecting'){
-        setConnectionState('connecting');
-      }
-    };
-    return conn;
-  }
+            <div class="grid md:grid-cols-2 gap-6 w-full max-w-4xl">
+                <!-- PC Mode Card -->
+                <button id="btn-select-pc" class="group relative glass-panel p-8 rounded-3xl text-left hover:bg-white/[0.05] transition-all duration-300 overflow-hidden">
+                    <div class="absolute inset-0 bg-gradient-to-br from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                    <div class="w-14 h-14 rounded-2xl bg-primary/20 flex items-center justify-center mb-6 text-primary border border-primary/30">
+                        <i data-lucide="monitor" class="w-7 h-7"></i>
+                    </div>
+                    <h3 class="text-2xl font-bold text-white mb-2">Host Dashboard</h3>
+                    <p class="text-slate-400 mb-6">Create a room, receive multiple audio streams, and view live formatting transcriptions.</p>
+                    <div class="flex items-center text-primary font-medium group-hover:translate-x-2 transition-transform">
+                        Start Session <i data-lucide="arrow-right" class="w-4 h-4 ml-2"></i>
+                    </div>
+                </button>
 
-  function scheduleConnectionTimeout(bannerEl, textEl){
-    connectionTimeoutHandle = setTimeout(() => {
-      if (state.connectionState !== 'connected'){
-        setConnectionState('disconnected');
-        showError(bannerEl, textEl, 'Connection timed out. Make sure both devices are on the internet and the code is correct, then try again.');
-      }
-    }, 35000);
-  }
+                <!-- Mobile Mode Card -->
+                <button id="btn-select-mobile" class="group relative glass-panel p-8 rounded-3xl text-left hover:bg-white/[0.05] transition-all duration-300 overflow-hidden">
+                    <div class="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                    <div class="w-14 h-14 rounded-2xl bg-emerald-500/20 flex items-center justify-center mb-6 text-emerald-400 border border-emerald-500/30">
+                        <i data-lucide="smartphone" class="w-7 h-7"></i>
+                    </div>
+                    <h3 class="text-2xl font-bold text-white mb-2">Connect Microphone</h3>
+                    <p class="text-slate-400 mb-6">Join an existing session using a code to stream your voice with ultra-low latency.</p>
+                    <div class="flex items-center text-emerald-400 font-medium group-hover:translate-x-2 transition-transform">
+                        Join Room <i data-lucide="arrow-right" class="w-4 h-4 ml-2"></i>
+                    </div>
+                </button>
+            </div>
+        </main>
 
-  /* ─── PC SIDE: create offer, listen for answer ─── */
-  async function pcInitiateConnection(code){
-    if (!db){ showError(el.pcErrorBanner, el.pcErrorText, 'Firebase not ready. Configure it first.'); return; }
+        <!-- VIEW: GUEST SETUP -->
+        <main id="view-guest-setup" class="hidden flex-1 flex flex-col items-center justify-center p-6">
+            <div class="glass-panel w-full max-w-md p-8 rounded-3xl space-y-8 relative overflow-hidden">
+                <button id="btn-back-home" class="absolute top-6 left-6 text-slate-400 hover:text-white transition-colors">
+                    <i data-lucide="arrow-left" class="w-5 h-5"></i>
+                </button>
+                <div class="text-center pt-4">
+                    <div class="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700">
+                        <i data-lucide="mic" class="w-8 h-8 text-primary"></i>
+                    </div>
+                    <h2 class="text-2xl font-bold text-white">Join Session</h2>
+                    <p class="text-slate-400 text-sm mt-2">Enter the 5-digit code shown on the host display.</p>
+                </div>
 
-    setConnectionState('connecting');
-    showInfo('Waiting for phone to connect…');
-    hideError(el.pcErrorBanner);
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2 ml-1">Room Code</label>
+                        <input type="number" id="join-code" class="w-full bg-black/30 border border-slate-700 rounded-xl px-4 py-3 text-white text-center text-2xl tracking-widest focus:outline-none focus:border-primary transition-colors" placeholder="00000" maxlength="5">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2 ml-1">Device Nickname</label>
+                        <input type="text" id="join-nickname" class="w-full bg-black/30 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors" placeholder="e.g. Meeting Table 1">
+                    </div>
+                </div>
 
-    state.pcId = generatePeerId();
-    roomRef = db.ref(`rooms/${code}`);
-    offerCandidatesRef = roomRef.child('offerCandidates');
-    answerCandidatesRef = roomRef.child('answerCandidates');
+                <button id="btn-join" class="w-full bg-primary hover:bg-blue-600 text-white font-semibold py-4 rounded-xl shadow-lg shadow-primary/30 transition-all flex items-center justify-center gap-2">
+                    Connect Microphone
+                </button>
+            </div>
+        </main>
 
-    // Clean slate for this code
-    await roomRef.set({ pcId: state.pcId, ts: Date.now() });
+        <!-- VIEW: GUEST ACTIVE (Mobile Mic Mode) -->
+        <main id="view-guest-active" class="hidden flex-1 flex flex-col items-center justify-center p-6">
+            <div class="text-center space-y-8 w-full max-w-sm">
+                
+                <div class="flex justify-between items-center px-4 py-2 bg-black/20 rounded-full border border-white/5">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="hash" class="w-4 h-4 text-slate-400"></i>
+                        <span id="active-room-code" class="font-mono font-bold tracking-widest text-lg">00000</span>
+                    </div>
+                    <span id="mobile-status" class="text-emerald-400 text-sm font-medium flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Connected
+                    </span>
+                </div>
 
-    pc = createPeerConnection();
+                <div class="text-2xl font-semibold text-white" id="active-nickname">Nickname</div>
 
-    // When phone's audio arrives, feed it to the SR engine
-    pc.ontrack = (event) => {
-      const [remoteStream] = event.streams;
-      animateWaveformFromStream(remoteStream);
-      const audioEl = document.createElement('audio');
-      audioEl.autoplay = true;
-      audioEl.srcObject = remoteStream;
-      audioEl.style.display = 'none';
-      document.body.appendChild(audioEl);
-    };
+                <!-- Big Mic Button -->
+                <button id="mobile-mic-btn" onclick="toggleMobileMic()" class="relative w-48 h-48 mx-auto rounded-full bg-red-500 shadow-[0_0_40px_rgba(239,68,68,0.4)] flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95">
+                    <div class="absolute inset-2 rounded-full border-2 border-white/20"></div>
+                    <i data-lucide="mic" id="mobile-mic-icon" class="w-20 h-20 text-white animate-pulse-fast"></i>
+                </button>
 
-    // Send our ICE candidates to Firebase
-    pc.onicecandidate = (event) => {
-      if (event.candidate){
-        offerCandidatesRef.push(event.candidate.toJSON());
-      }
-    };
+                <div class="glass-panel p-4 rounded-2xl min-h-[100px] flex items-center justify-center">
+                    <p id="mobile-transcript" class="text-slate-300 italic text-center text-sm">Listening...</p>
+                </div>
 
-    // Create and store the offer
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await roomRef.update({ offer: { type: offer.type, sdp: offer.sdp } });
+                <button onclick="stopGuest()" class="px-6 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white text-sm font-medium transition-colors">
+                    Disconnect
+                </button>
+            </div>
+        </main>
 
-    // Watch for the phone's answer
-    const answerHandler = async (snap) => {
-      const data = snap.val();
-      if (data && pc && !pc.currentRemoteDescription){
-        await pc.setRemoteDescription(new RTCSessionDescription(data));
-      }
-    };
-    trackListener(roomRef.child('answer'), 'value', answerHandler);
+        <!-- VIEW: HOST DASHBOARD -->
+        <main id="view-host" class="hidden flex-1 flex overflow-hidden p-4 md:p-6 gap-6 flex-col md:flex-row h-[calc(100vh-80px)]">
+            
+            <!-- Sidebar: Connections & Info -->
+            <aside class="w-full md:w-80 flex flex-col gap-4">
+                <!-- Info Card -->
+                <div class="glass-panel rounded-2xl p-6 flex flex-col items-center justify-center text-center relative overflow-hidden">
+                    <div class="absolute top-0 w-full h-1 bg-gradient-to-r from-primary to-accent"></div>
+                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Join Code</p>
+                    <h2 id="host-room-code" class="text-5xl font-mono font-bold tracking-[0.2em] text-white">00000</h2>
+                    
+                    <div class="mt-6 flex items-center gap-4 w-full">
+                        <div class="flex-1 bg-black/20 rounded-lg p-3">
+                            <p class="text-[10px] text-slate-400 uppercase">Duration</p>
+                            <p id="session-timer" class="font-mono text-lg font-medium">00:00</p>
+                        </div>
+                        <div class="flex-1 bg-black/20 rounded-lg p-3">
+                            <p class="text-[10px] text-slate-400 uppercase">Language</p>
+                            <p class="font-medium text-sm mt-1">Auto (EN)</p>
+                        </div>
+                    </div>
+                </div>
 
-    // Watch for phone's ICE candidates
-    const answerCandHandler = (snap) => {
-      snap.forEach(child => {
-        const candidate = new RTCIceCandidate(child.val());
-        if (pc) pc.addIceCandidate(candidate).catch(() => {});
-      });
-    };
-    trackListener(answerCandidatesRef, 'child_added', answerCandHandler);
+                <!-- Master Waveform -->
+                <div class="glass-panel rounded-2xl p-4 flex flex-col h-32">
+                    <p class="text-xs font-medium text-slate-400 mb-2 flex items-center gap-2">
+                        <i data-lucide="activity" class="w-3 h-3"></i> Master Output
+                    </p>
+                    <canvas id="master-canvas" class="w-full flex-1 rounded-lg bg-black/30"></canvas>
+                </div>
 
-    scheduleConnectionTimeout(el.pcErrorBanner, el.pcErrorText);
-  }
+                <!-- Mic List -->
+                <div class="glass-panel rounded-2xl flex-1 flex flex-col overflow-hidden">
+                    <div class="p-4 border-b border-glassBorder flex justify-between items-center">
+                        <h3 class="text-sm font-semibold text-white flex items-center gap-2">
+                            <i data-lucide="radio-receiver" class="w-4 h-4 text-primary"></i> Connected Mics
+                        </h3>
+                    </div>
+                    <div id="mic-list" class="flex-1 overflow-y-auto p-4 space-y-3">
+                        <!-- Mic cards injected here -->
+                        <div class="text-center text-gray-500 text-sm py-8 border border-dashed border-gray-700 rounded-xl">
+                            Waiting for microphones...
+                        </div>
+                    </div>
+                </div>
+            </aside>
 
-  /* ─── PHONE SIDE: read offer, send answer ─── */
-  async function phoneJoinConnection(code){
-    if (!db){ showError(el.phoneErrorBanner, el.phoneErrorText, 'Firebase not ready. Configure it first.'); return; }
+            <!-- Main Output: Transcription -->
+            <section class="flex-1 flex flex-col glass-panel rounded-2xl overflow-hidden relative">
+                
+                <!-- Toolbar -->
+                <div class="p-3 border-b border-glassBorder bg-black/10 flex justify-between items-center flex-wrap gap-2">
+                    <div class="flex gap-2">
+                        <button onclick="copyText()" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium flex items-center gap-2 transition-colors">
+                            <i data-lucide="copy" class="w-3 h-3"></i> Copy
+                        </button>
+                        <button onclick="clearText()" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium flex items-center gap-2 transition-colors">
+                            <i data-lucide="trash-2" class="w-3 h-3"></i> Clear
+                        </button>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="downloadTxt()" class="px-3 py-1.5 rounded-lg bg-primary/20 hover:bg-primary/30 text-primary text-xs font-medium flex items-center gap-2 transition-colors">
+                            <i data-lucide="download" class="w-3 h-3"></i> TXT
+                        </button>
+                        <button onclick="downloadDocx()" class="px-3 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-xs font-medium flex items-center gap-2 transition-colors">
+                            <i data-lucide="file-down" class="w-3 h-3"></i> DOCX
+                        </button>
+                    </div>
+                </div>
 
-    hideError(el.phoneErrorBanner);
-    setConnectionState('connecting');
+                <!-- Text Area -->
+                <div id="transcript-container" class="flex-1 p-6 md:p-10 overflow-y-auto scroll-smooth">
+                    <div id="transcript-output" class="text-lg md:text-xl leading-relaxed text-slate-100 font-serif max-w-4xl mx-auto pb-20">
+                        <p class="text-slate-500 italic text-base font-sans flex items-center justify-center h-full mt-20 gap-3">
+                            <i data-lucide="mic" class="w-5 h-5"></i>
+                            Connect a mobile microphone using code <span class="font-mono text-white font-bold bg-white/10 px-2 py-0.5 rounded" id="inline-code"></span> to start.
+                        </p>
+                        <script>
+                            // Small hack to keep inline code updated
+                            setInterval(()=> { if($('inline-code') && state.roomCode) $('inline-code').textContent = state.roomCode }, 1000);
+                        </script>
+                    </div>
+                </div>
 
-    // Verify room exists
-    const roomSnap = await db.ref(`rooms/${code}/pcId`).once('value');
-    if (!roomSnap.val()){
-      showError(el.phoneErrorBanner, el.phoneErrorText, 'Room not found. Make sure the PC is open and showing this code, then try again.');
-      setConnectionState('waiting');
-      return;
-    }
+                <!-- Stats Footer -->
+                <div class="absolute bottom-0 w-full p-3 bg-dark/80 backdrop-blur-md border-t border-glassBorder flex justify-center gap-8 text-xs text-slate-400">
+                    <span>Words: <span id="word-count" class="text-white font-mono ml-1">0</span></span>
+                    <span>Characters: <span id="char-count" class="text-white font-mono ml-1">0</span></span>
+                    <span class="flex items-center gap-1 text-primary"><i data-lucide="sparkles" class="w-3 h-3"></i> Auto-Clean Active</span>
+                </div>
+            </section>
+        </main>
+    </div>
 
-    roomRef = db.ref(`rooms/${code}`);
-    offerCandidatesRef = roomRef.child('offerCandidates');
-    answerCandidatesRef = roomRef.child('answerCandidates');
-
-    let stream;
-    try{
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    }catch(err){
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'){
-        showError(el.phoneErrorBanner, el.phoneErrorText, 'Microphone permission denied. Allow mic access in browser settings, then Connect again.');
-      } else if (err.name === 'NotFoundError'){
-        showError(el.phoneErrorBanner, el.phoneErrorText, 'No microphone found on this device.');
-      } else {
-        showError(el.phoneErrorBanner, el.phoneErrorText, 'Cannot access microphone: ' + err.message);
-      }
-      setConnectionState('waiting');
-      return;
-    }
-
-    state.localStream = stream;
-    stream.getTracks().forEach(track => pc && pc.addTrack(track, stream));
-    animateWaveformFromStream(stream);
-    el.phoneStatusLabel.textContent = 'Microphone ready';
-
-    state.phoneId = generatePeerId();
-    pc = createPeerConnection();
-
-    // Re-add tracks (pc was just created)
-    stream.getTracks().forEach(track => pc.addTrack(track, stream));
-
-    // Send our ICE candidates to Firebase
-    pc.onicecandidate = (event) => {
-      if (event.candidate){
-        answerCandidatesRef.push(event.candidate.toJSON());
-      }
-    };
-
-    // Read the PC's offer
-    const offerSnap = await roomRef.child('offer').once('value');
-    const offerData = offerSnap.val();
-    if (!offerData){
-      showError(el.phoneErrorBanner, el.phoneErrorText, 'PC offer not found. Ask the PC to generate a new code.');
-      setConnectionState('waiting');
-      return;
-    }
-
-    await pc.setRemoteDescription(new RTCSessionDescription(offerData));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await roomRef.update({ answer: { type: answer.type, sdp: answer.sdp } });
-
-    // Watch for PC's ICE candidates
-    const offerCandHandler = (snap) => {
-      const candidate = new RTCIceCandidate(snap.val());
-      if (pc) pc.addIceCandidate(candidate).catch(() => {});
-    };
-    trackListener(offerCandidatesRef, 'child_added', offerCandHandler);
-
-    scheduleConnectionTimeout(el.phoneErrorBanner, el.phoneErrorText);
-  }
-
-  function teardownConnection(){
-    clearTimeout(connectionTimeoutHandle);
-    detachAllListeners();
-    if (roomRef) roomRef = null;
-
-    if (pc){ try{ pc.close(); }catch(e){} pc = null; }
-    if (state.localStream){
-      state.localStream.getTracks().forEach(t => t.stop());
-      state.localStream = null;
-    }
-    stopWaveformAnimation();
-    setConnectionState('waiting');
-    hideInfo();
-  }
-
-  /* ============================================================
-     ROLE SWITCHING
-     ============================================================ */
-  function renderRoomCode(code){
-    const digits = el.roomCodeDisplay.querySelectorAll('.digit');
-    String(code).split('').forEach((d, i) => { if (digits[i]) digits[i].textContent = d; });
-  }
-
-  function renderQRCode(code){
-    // QR encodes a URL with ?code=XXXXX so phone camera auto-navigates
-    const pageUrl = window.location.href.split('?')[0];
-    const target = `${pageUrl}?code=${code}`;
-    el.qrArea.style.display = '';
-    window.generateQR(target, el.qrCanvas, 140);
-  }
-
-  function switchRole(role){
-    state.role = role;
-    try{ localStorage.setItem(STORAGE_KEYS.ROLE, role); }catch(e){}
-
-    const isPC = role === 'pc';
-    document.querySelector('.app').classList.toggle('role-phone', !isPC);
-    el.roleBtnPC.classList.toggle('active', isPC);
-    el.roleBtnPC.setAttribute('aria-selected', isPC);
-    el.roleBtnPhone.classList.toggle('active', !isPC);
-    el.roleBtnPhone.setAttribute('aria-selected', !isPC);
-
-    el.pcConnectBlock.style.display  = isPC ? '' : 'none';
-    el.phoneConnectBlock.style.display = isPC ? 'none' : '';
-    el.phoneMicStage.style.display   = isPC ? 'none' : '';
-    el.roleStat.textContent = isPC ? 'PC' : 'Phone';
-
-    if (!isPC && state.isDictating) stopDictation();
-    el.startDictationBtn.style.display = isPC && !state.isDictating ? '' : 'none';
-    el.stopDictationBtn.style.display  = isPC && state.isDictating  ? '' : 'none';
-
-    teardownConnection();
-
-    if (isPC){
-      state.roomCode = generateRoomCode();
-      renderRoomCode(state.roomCode);
-      renderQRCode(state.roomCode);
-      pcInitiateConnection(state.roomCode);
-    }
-  }
-
-  el.roleBtnPC.addEventListener('click', () => switchRole('pc'));
-  el.roleBtnPhone.addEventListener('click', () => switchRole('phone'));
-
-  el.regenCodeBtn.addEventListener('click', () => {
-    teardownConnection();
-    state.roomCode = generateRoomCode();
-    renderRoomCode(state.roomCode);
-    renderQRCode(state.roomCode);
-    hideError(el.pcErrorBanner);
-    pcInitiateConnection(state.roomCode);
-  });
-
-  el.connectBtn.addEventListener('click', () => {
-    const code = el.codeInput.value.trim();
-    hideError(el.phoneErrorBanner);
-    if (!/^\d{5}$/.test(code)){
-      showError(el.phoneErrorBanner, el.phoneErrorText, 'Enter the full 5-digit code shown on the PC.');
-      return;
-    }
-    teardownConnection();
-    phoneJoinConnection(code);
-  });
-
-  el.codeInput.addEventListener('input', () => {
-    el.codeInput.value = el.codeInput.value.replace(/\D/g,'').slice(0,5);
-  });
-
-  /* ============================================================
-     AUTO-FILL CODE FROM URL ?code=XXXXX (QR scan target)
-     ============================================================ */
-  function checkUrlCode(){
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    if (code && /^\d{5}$/.test(code)){
-      // Switch to phone mode and auto-fill
-      switchRole('phone');
-      el.codeInput.value = code;
-    }
-  }
-
-  /* ============================================================
-     PHONE MIC START/STOP
-     ============================================================ */
-  el.phoneMicStartBtn.addEventListener('click', () => {
-    if (!state.localStream){
-      showError(el.phoneErrorBanner, el.phoneErrorText, 'Connect to a PC first, then start the microphone.');
-      return;
-    }
-    el.bigMic.classList.add('active');
-    el.phoneStatusLabel.textContent = 'Microphone live — speak now';
-    el.phoneMicStartBtn.style.display = 'none';
-    el.phoneMicStopBtn.style.display = '';
-    state.localStream.getAudioTracks().forEach(t => t.enabled = true);
-    startSessionTimer();
-  });
-
-  el.phoneMicStopBtn.addEventListener('click', () => {
-    el.bigMic.classList.remove('active');
-    el.phoneStatusLabel.textContent = 'Microphone muted';
-    el.phoneMicStopBtn.style.display = 'none';
-    el.phoneMicStartBtn.style.display = '';
-    if (state.localStream) state.localStream.getAudioTracks().forEach(t => t.enabled = false);
-  });
-
-  /* ============================================================
-     TOOLBAR ACTIONS
-     ============================================================ */
-  function copyTranscript(){
-    const text = el.transcript.value;
-    if (!text.trim()){ showToast('Nothing to copy yet', true); return; }
-    navigator.clipboard.writeText(text).then(() => {
-      showToast('Copied to clipboard');
-    }).catch(() => {
-      el.transcript.select();
-      document.execCommand('copy');
-      showToast('Copied to clipboard');
-    });
-  }
-
-  function clearTranscript(){
-    if (!el.transcript.value.trim()) return;
-    state.finalTranscript = '';
-    el.transcript.value = '';
-    updateStats('');
-    persistTranscript();
-    showToast('Notes cleared');
-  }
-
-  function downloadTxt(){
-    const text = el.transcript.value;
-    if (!text.trim()){ showToast('Nothing to download yet', true); return; }
-    triggerDownload(new Blob([text], { type:'text/plain;charset=utf-8' }), `voicebridge-notes-${Date.now()}.txt`);
-    showToast('Downloaded as TXT');
-  }
-
-  function downloadDoc(){
-    const text = el.transcript.value;
-    if (!text.trim()){ showToast('Nothing to download yet', true); return; }
-    const escaped = text.split('\n').map(line =>
-      `<p>${line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') || '&nbsp;'}</p>`
-    ).join('');
-    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>VoiceBridge Notes</title></head><body style="font-family:Calibri,Arial,sans-serif;font-size:14px;">${escaped}</body></html>`;
-    triggerDownload(new Blob(['\ufeff', html], { type:'application/msword' }), `voicebridge-notes-${Date.now()}.doc`);
-    showToast('Downloaded as DOC');
-  }
-
-  function triggerDownload(blob, filename){
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
-  el.copyBtn.addEventListener('click', copyTranscript);
-  el.copyBtnToolbar.addEventListener('click', copyTranscript);
-  el.clearBtn.addEventListener('click', clearTranscript);
-  el.clearBtnToolbar.addEventListener('click', clearTranscript);
-  el.downloadTxtBtn.addEventListener('click', downloadTxt);
-  el.downloadDocBtn.addEventListener('click', downloadDoc);
-  el.startDictationBtn.addEventListener('click', startDictation);
-  el.stopDictationBtn.addEventListener('click', stopDictation);
-
-  /* ============================================================
-     INIT
-     ============================================================ */
-  function init(){
-    initFirebase();
-    restoreSession();
-    checkUrlCode(); // handle ?code= from QR scan
-    if (state.role === 'pc'){
-      state.roomCode = generateRoomCode();
-      renderRoomCode(state.roomCode);
-      renderQRCode(state.roomCode);
-      pcInitiateConnection(state.roomCode);
-    }
-    if (!SpeechRecognitionAPI){
-      showError(el.pcErrorBanner, el.pcErrorText, 'Speech recognition not supported in this browser. Use Chrome or Edge on desktop for live dictation.');
-    }
-    updateStats(el.transcript.value);
-  }
-
-  window.addEventListener('beforeunload', () => {
-    try{ localStorage.setItem(STORAGE_KEYS.TRANSCRIPT, el.transcript.value); }catch(e){}
-    // Clean up Firebase room entry
-    if (roomRef && state.role === 'pc'){
-      try{ roomRef.remove(); }catch(e){}
-    }
-  });
-
-  init();
-})();
-</script>
 </body>
 </html>
