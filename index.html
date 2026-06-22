@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Phone Mic → PC | WebRTC Microphone Bridge</title>
+<style>
+/* ============================================================
+   DESIGN SYSTEM — Dark theme, modern responsive UI
+   ============================================================ */
+:root{
+  --bg:#0b0d12;
+  --bg-elev:#121521;
+  --bg-card:#161a28;
+  --border:#252b3d;
+  --text:#e7e9f0;
+  --text-dim:#8b92a8;
+  --accent:#6c8cff;
+  --accent-dim:#3d4d99;
+  --green:#3ddc84;
+  --yellow:#ffc857;
+  --red:#ff5c6c;
+  --radius:14px;
+  --mono:'SF Mono',Consolas,'Courier New',monospace;
+}
+*{box-sizing:border-box;}
+html,body{
+  margin:0;padding:0;
+  background:radial-gradient(circle at 50% 0%, #161a2c 0%, var(--bg) 60%);
+  color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  min-height:100vh;
+}
+.wrap{
+  max-width:560px;
+  margin:0 auto;
+  padding:24px 18px 60px;
+}
+header{
+  text-align:center;
+  margin-bottom:22px;
+}
+header h1{
+  font-size:1.4rem;
+  margin:0 0 4px;
+  letter-spacing:-0.02em;
+}
+header p{
+  color:var(--text-dim);
+  font-size:0.85rem;
+  margin:0;
+}
+
+/* Card containers */
+.card{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:20px;
+  margin-bottom:16px;
+  box-shadow:0 4px 24px rgba(0,0,0,0.25);
+}
+.card h2{
+  font-size:0.95rem;
+  margin:0 0 14px;
+  color:var(--text-dim);
+  text-transform:uppercase;
+  letter-spacing:0.06em;
+  font-weight:600;
+}
+
+/* Role selector */
+.role-tabs{
+  display:flex;
+  gap:8px;
+  margin-bottom:16px;
+}
+.role-tab{
+  flex:1;
+  padding:12px;
+  background:var(--bg-elev);
+  border:1px solid var(--border);
+  border-radius:10px;
+  text-align:center;
+  cursor:pointer;
+  color:var(--text-dim);
+  font-weight:600;
+  font-size:0.9rem;
+  transition:all .15s ease;
+  user-select:none;
+}
+.role-tab.active{
+  background:linear-gradient(135deg,var(--accent),var(--accent-dim));
+  color:#fff;
+  border-color:var(--accent);
+}
+
+/* Buttons */
+button{
+  font-family:inherit;
+  font-size:0.95rem;
+  font-weight:600;
+  padding:13px 18px;
+  border-radius:10px;
+  border:none;
+  cursor:pointer;
+  transition:transform .08s ease, opacity .15s ease, background .15s ease;
+  width:100%;
+}
+button:active{transform:scale(0.97);}
+button:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-primary{background:linear-gradient(135deg,var(--accent),#4f6fd9);color:#fff;}
+.btn-danger{background:linear-gradient(135deg,#ff5c6c,#c93f4d);color:#fff;}
+.btn-secondary{background:var(--bg-elev);color:var(--text);border:1px solid var(--border);}
+.btn-mute{background:var(--bg-elev);color:var(--text);border:1px solid var(--border);}
+.btn-mute.is-muted{background:linear-gradient(135deg,var(--yellow),#d9a23d);color:#1a1300;}
+.btn-row{display:flex;gap:10px;margin-top:6px;}
+.btn-row button{flex:1;}
+
+/* Code display */
+.code-display{
+  font-family:var(--mono);
+  font-size:2.6rem;
+  letter-spacing:0.18em;
+  font-weight:700;
+  text-align:center;
+  padding:18px 0;
+  color:var(--accent);
+  background:var(--bg-elev);
+  border-radius:10px;
+  border:1px dashed var(--accent-dim);
+  margin:8px 0 14px;
+  user-select:all;
+}
+
+/* Signal blob (manual exchange payload) */
+.blob-wrap{margin-top:6px;}
+.blob-wrap label{
+  display:block;
+  font-size:0.78rem;
+  color:var(--text-dim);
+  margin-bottom:6px;
+}
+textarea.blob{
+  width:100%;
+  height:90px;
+  resize:vertical;
+  background:var(--bg-elev);
+  border:1px solid var(--border);
+  border-radius:10px;
+  color:var(--text);
+  font-family:var(--mono);
+  font-size:0.72rem;
+  padding:10px;
+  line-height:1.4;
+}
+.copy-row{display:flex;gap:8px;margin-top:8px;}
+.copy-row button{flex:0 0 auto;width:auto;padding:9px 14px;font-size:0.82rem;}
+
+/* Status indicator */
+.status-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:12px 14px;
+  background:var(--bg-elev);
+  border-radius:10px;
+  border:1px solid var(--border);
+  margin-bottom:14px;
+}
+.status-dot{
+  width:11px;height:11px;border-radius:50%;
+  background:var(--text-dim);
+  flex-shrink:0;
+  box-shadow:0 0 0 0 rgba(255,255,255,0);
+  transition:background .2s ease;
+}
+.status-dot.waiting{background:var(--text-dim);}
+.status-dot.connecting{background:var(--yellow);animation:pulse 1s infinite;}
+.status-dot.connected{background:var(--green);box-shadow:0 0 10px var(--green);}
+.status-dot.disconnected{background:var(--red);}
+@keyframes pulse{
+  0%,100%{opacity:1;}
+  50%{opacity:0.35;}
+}
+.status-text{font-size:0.9rem;font-weight:600;}
+.status-sub{font-size:0.78rem;color:var(--text-dim);margin-left:auto;}
+
+/* Mic level meter */
+.meter-wrap{margin-top:4px;}
+.meter-label{
+  display:flex;
+  justify-content:space-between;
+  font-size:0.78rem;
+  color:var(--text-dim);
+  margin-bottom:6px;
+}
+.meter-track{
+  width:100%;
+  height:14px;
+  background:var(--bg-elev);
+  border-radius:8px;
+  overflow:hidden;
+  border:1px solid var(--border);
+  position:relative;
+}
+.meter-fill{
+  height:100%;
+  width:0%;
+  background:linear-gradient(90deg,var(--green),var(--yellow) 75%,var(--red) 92%);
+  transition:width .06s linear;
+  border-radius:8px;
+}
+
+/* Error / info banners */
+.banner{
+  padding:12px 14px;
+  border-radius:10px;
+  font-size:0.85rem;
+  margin-bottom:14px;
+  line-height:1.45;
+  display:none;
+}
+.banner.show{display:block;}
+.banner.error{background:rgba(255,92,108,0.12);border:1px solid rgba(255,92,108,0.4);color:#ffb3ba;}
+.banner.info{background:rgba(108,140,255,0.1);border:1px solid rgba(108,140,255,0.35);color:#aebdfb;}
+.banner.success{background:rgba(61,220,132,0.1);border:1px solid rgba(61,220,132,0.35);color:#9aeec0;}
+
+.hidden{display:none !important;}
+.step-num{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:20px;height:20px;
+  border-radius:50%;
+  background:var(--accent-dim);
+  color:#fff;
+  font-size:0.72rem;
+  font-weight:700;
+  margin-right:8px;
+  flex-shrink:0;
+}
+.step{display:flex;align-items:flex-start;margin-bottom:10px;font-size:0.84rem;color:var(--text-dim);}
+.step b{color:var(--text);}
+
+footer{
+  text-align:center;
+  color:var(--text-dim);
+  font-size:0.72rem;
+  margin-top:30px;
+  line-height:1.6;
+}
+audio{display:none;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>📡 Phone Mic → PC</h1>
+    <p>Use your phone's microphone on your PC over a direct WebRTC link</p>
+  </header>
+
+  <!-- ============================================================
+       GLOBAL STATUS BANNERS (errors / info messages)
+       ============================================================ -->
+  <div id="errorBanner" class="banner error"></div>
+  <div id="infoBanner" class="banner info"></div>
+  <div id="successBanner" class="banner success"></div>
+
+  <!-- ============================================================
+       CONNECTION STATUS INDICATOR
+       Shows: Waiting / Connecting / Connected / Disconnected
+       ============================================================ -->
+  <div class="status-row">
+    <div id="statusDot" class="status-dot waiting"></div>
+    <div id="statusText" class="status-text">Idle</div>
+    <div id="statusSub" class="status-sub"></div>
+  </div>
+
+  <!-- ============================================================
+       ROLE SELECTOR — Host (PC) or Join (Phone)
+       ============================================================ -->
+  <div class="card">
+    <h2>Choose Role</h2>
+    <div class="role-tabs">
+      <div id="tabHost" class="role-tab active">🖥️ Host (PC)</div>
+      <div id="tabJoin" class="role-tab">📱 Join (Phone)</div>
+    </div>
+
+    <!-- ---------- HOST PANEL ---------- -->
+    <div id="hostPanel">
+      <div class="step"><span class="step-num">1</span>Click <b>Create Room</b> to generate a 5-digit code.</div>
+      <div class="step"><span class="step-num">2</span>Send the code <b>and</b> the connection text below to your phone (any chat app, email, AirDrop).</div>
+      <div class="step"><span class="step-num">3</span>On your phone, open this same page, choose <b>Join</b>, paste the text it gives you back here.</div>
+
+      <button id="btnCreateRoom" class="btn-primary">Create Room</button>
+
+      <div id="hostCodeSection" class="hidden">
+        <div class="code-display" id="roomCode">-----</div>
+
+        <div class="blob-wrap">
+          <label>Step A — Send this to your phone:</label>
+          <textarea id="offerBlob" class="blob" readonly></textarea>
+          <div class="copy-row">
+            <button id="copyOfferBtn" class="btn-secondary">📋 Copy</button>
+          </div>
+        </div>
+
+        <div class="blob-wrap">
+          <label>Step B — Paste the reply from your phone here:</label>
+          <textarea id="answerInput" class="blob" placeholder="Paste the text your phone gives you after it joins..."></textarea>
+          <div class="copy-row">
+            <button id="connectFromAnswerBtn" class="btn-primary">Connect</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---------- JOIN PANEL (PHONE) ---------- -->
+    <div id="joinPanel" class="hidden">
+      <div class="step"><span class="step-num">1</span>Enter the 5-digit room code shown on the PC.</div>
+      <div class="step"><span class="step-num">2</span>Paste the connection text the PC sent you.</div>
+      <div class="step"><span class="step-num">3</span>Tap <b>Join Room</b>, allow microphone access, then send the reply text back to the PC.</div>
+
+      <label style="display:block;font-size:0.78rem;color:var(--text-dim);margin-bottom:6px;">Room Code</label>
+      <input id="roomCodeInput" maxlength="5" inputmode="numeric" placeholder="e.g. 48213"
+        style="width:100%;font-family:var(--mono);font-size:1.4rem;letter-spacing:0.15em;text-align:center;
+        padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--bg-elev);color:var(--text);margin-bottom:14px;">
+
+      <div class="blob-wrap">
+        <label>Paste the connection text from the PC:</label>
+        <textarea id="offerInput" class="blob" placeholder="Paste here..."></textarea>
+      </div>
+
+      <button id="btnJoinRoom" class="btn-primary" style="margin-top:12px;">Join Room</button>
+
+      <div id="joinReplySection" class="hidden">
+        <div class="blob-wrap">
+          <label>Send this reply back to the PC:</label>
+          <textarea id="answerBlob" class="blob" readonly></textarea>
+          <div class="copy-row">
+            <button id="copyAnswerBtn" class="btn-secondary">📋 Copy</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       LIVE CONTROLS — visible once mic stream is active (phone side)
+       or once audio is being received (PC side)
+       ============================================================ -->
+  <div id="liveCard" class="card hidden">
+    <h2>Live Session</h2>
+
+    <div class="meter-wrap">
+      <div class="meter-label"><span>Microphone Level</span><span id="meterPct">0%</span></div>
+      <div class="meter-track"><div id="meterFill" class="meter-fill"></div></div>
+    </div>
+
+    <div class="btn-row" style="margin-top:16px;">
+      <button id="btnMute" class="btn-mute">🎤 Mute</button>
+      <button id="btnDisconnect" class="btn-danger">⏹ Disconnect</button>
+    </div>
+  </div>
+
+  <!-- Hidden audio element used to play the received remote stream on PC -->
+  <audio id="remoteAudio" autoplay playsinline></audio>
+
+  <footer>
+    Direct peer-to-peer WebRTC · No media ever touches a server · Works on Chrome, Edge, Firefox &amp; Android browsers
+  </footer>
+</div>
+
+<script>
+/* ================================================================
+   PHONE MIC → PC  —  WebRTC peer-to-peer audio bridge
+   ================================================================
+   ARCHITECTURE NOTE:
+   WebRTC always needs a "signaling" step where the two peers swap
+   connection descriptions (SDP) before a direct P2P link can open.
+   Normally a small server (e.g. WebSocket) relays that exchange.
+   Since this app must be a single HTML file with NO custom backend,
+   signaling is done manually: one device generates a text blob,
+   the human copies/sends it to the other device (chat app, AirDrop,
+   email — anything), and pastes the reply back. After that one-time
+   manual handshake, audio flows directly device-to-device via P2P,
+   using only free public STUN servers for NAT traversal.
+   ================================================================ */
+
+/* ----------------------------------------------------------------
+   1. CONSTANTS & GLOBAL STATE
+   ---------------------------------------------------------------- */
+const STUN_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' }
+];
+
+let pc = null;              // RTCPeerConnection instance
+let localStream = null;     // Microphone MediaStream (phone side)
+let isMuted = false;
+let role = 'host';           // 'host' (PC) or 'join' (phone)
+let audioCtx = null;
+let analyser = null;
+let meterRAF = null;
+let roomCode = '';
+
+/* ----------------------------------------------------------------
+   2. DOM REFERENCES
+   ---------------------------------------------------------------- */
+const el = (id) => document.getElementById(id);
+
+const tabHost = el('tabHost');
+const tabJoin = el('tabJoin');
+const hostPanel = el('hostPanel');
+const joinPanel = el('joinPanel');
+
+const btnCreateRoom = el('btnCreateRoom');
+const hostCodeSection = el('hostCodeSection');
+const roomCodeEl = el('roomCode');
+const offerBlob = el('offerBlob');
+const copyOfferBtn = el('copyOfferBtn');
+const answerInput = el('answerInput');
+const connectFromAnswerBtn = el('connectFromAnswerBtn');
+
+const roomCodeInput = el('roomCodeInput');
+const offerInput = el('offerInput');
+const btnJoinRoom = el('btnJoinRoom');
+const joinReplySection = el('joinReplySection');
+const answerBlob = el('answerBlob');
+const copyAnswerBtn = el('copyAnswerBtn');
+
+const liveCard = el('liveCard');
+const btnMute = el('btnMute');
+const btnDisconnect = el('btnDisconnect');
+const meterFill = el('meterFill');
+const meterPct = el('meterPct');
+const remoteAudio = el('remoteAudio');
+
+const statusDot = el('statusDot');
+const statusText = el('statusText');
+const statusSub = el('statusSub');
+const errorBanner = el('errorBanner');
+const infoBanner = el('infoBanner');
+const successBanner = el('successBanner');
+
+/* ----------------------------------------------------------------
+   3. UI HELPERS
+   ---------------------------------------------------------------- */
+function showBanner(type, msg) {
+  hideBanners();
+  const map = { error: errorBanner, info: infoBanner, success: successBanner };
+  const b = map[type];
+  b.textContent = msg;
+  b.classList.add('show');
+}
+function hideBanners() {
+  [errorBanner, infoBanner, successBanner].forEach(b => b.classList.remove('show'));
+}
+
+// Updates the status dot + label. State machine: waiting / connecting / connected / disconnected
+function setStatus(state, sub = '') {
+  statusDot.className = 'status-dot ' + state;
+  const labels = {
+    waiting: 'Waiting',
+    connecting: 'Connecting…',
+    connected: 'Connected',
+    disconnected: 'Disconnected'
+  };
+  statusText.textContent = labels[state] || state;
+  statusSub.textContent = sub;
+}
+
+function switchRole(newRole) {
+  role = newRole;
+  tabHost.classList.toggle('active', role === 'host');
+  tabJoin.classList.toggle('active', role === 'join');
+  hostPanel.classList.toggle('hidden', role !== 'host');
+  joinPanel.classList.toggle('hidden', role !== 'join');
+}
+
+tabHost.addEventListener('click', () => switchRole('host'));
+tabJoin.addEventListener('click', () => switchRole('join'));
+
+/* ----------------------------------------------------------------
+   4. ROOM CODE GENERATION (5-digit code, host side)
+   ---------------------------------------------------------------- */
+function generateRoomCode() {
+  return String(Math.floor(10000 + Math.random() * 90000)); // 10000–99999
+}
+
+/* ----------------------------------------------------------------
+   5. PEER CONNECTION SETUP
+   ---------------------------------------------------------------- */
+function createPeerConnection() {
+  const peer = new RTCPeerConnection({ iceServers: STUN_SERVERS });
+
+  // ICE connection state drives our status indicator
+  peer.oniceconnectionstatechange = () => {
+    const s = peer.iceConnectionState;
+    if (s === 'checking') setStatus('connecting', 'Negotiating P2P link…');
+    else if (s === 'connected' || s === 'completed') {
+      setStatus('connected', 'Direct P2P audio link active');
+      showBanner('success', '✅ Connected! Audio is now streaming directly between devices.');
+      liveCard.classList.remove('hidden');
+    } else if (s === 'disconnected' || s === 'failed' || s === 'closed') {
+      setStatus('disconnected', s === 'failed' ? 'Connection failed' : '');
+      if (s === 'failed') {
+        showBanner('error', '⚠️ Connection failed. This can happen on strict/symmetric NATs where STUN alone can\'t find a path. Try again on the same Wi-Fi network, or use a TURN server.');
+      }
+    }
+  };
+
+  // When the remote peer's audio track arrives, play it (PC side)
+  peer.ontrack = (event) => {
+    remoteAudio.srcObject = event.streams[0];
+    startMeter(event.streams[0]);
+  };
+
+  return peer;
+}
+
+/* ----------------------------------------------------------------
+   6. HOST FLOW (PC) — Create Room
+   ---------------------------------------------------------------- */
+btnCreateRoom.addEventListener('click', async () => {
+  hideBanners();
+  try {
+    roomCode = generateRoomCode();
+    roomCodeEl.textContent = roomCode;
+    hostCodeSection.classList.remove('hidden');
+    btnCreateRoom.disabled = true;
+    setStatus('waiting', 'Waiting for phone to join…');
+
+    pc = createPeerConnection();
+
+    // PC only RECEIVES audio — declare a recvonly audio transceiver
+    pc.addTransceiver('audio', { direction: 'recvonly' });
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    // Wait for ICE gathering to finish so the blob includes all candidates
+    await waitForIceGatheringComplete(pc);
+
+    // Package room code + SDP offer into one shareable text blob
+    const payload = {
+      type: 'offer',
+      code: roomCode,
+      sdp: pc.localDescription
+    };
+    offerBlob.value = btoa(encodeURIComponent(JSON.stringify(payload)));
+    showBanner('info', '📤 Send the code and the text above to your phone, then wait for its reply.');
+  } catch (err) {
+    handleError(err);
+  }
+});
+
+copyOfferBtn.addEventListener('click', () => copyToClipboard(offerBlob.value, copyOfferBtn));
+
+// Host: paste phone's answer blob back in, finish handshake
+connectFromAnswerBtn.addEventListener('click', async () => {
+  hideBanners();
+  try {
+    const raw = answerInput.value.trim();
+    if (!raw) { showBanner('error', 'Paste the reply text from your phone first.'); return; }
+
+    const payload = JSON.parse(decodeURIComponent(atob(raw)));
+    if (payload.type !== 'answer') throw new Error('That doesn\'t look like a valid reply.');
+
+    setStatus('connecting', 'Finalizing connection…');
+    await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+  } catch (err) {
+    handleError(err, 'Could not read that reply text. Make sure it was copied completely from the phone.');
+  }
+});
+
+/* ----------------------------------------------------------------
+   7. JOIN FLOW (PHONE) — Join Room
+   ---------------------------------------------------------------- */
+btnJoinRoom.addEventListener('click', async () => {
+  hideBanners();
+  try {
+    const codeTyped = roomCodeInput.value.trim();
+    const raw = offerInput.value.trim();
+    if (!/^\d{5}$/.test(codeTyped)) { showBanner('error', 'Enter the 5-digit room code from the PC.'); return; }
+    if (!raw) { showBanner('error', 'Paste the connection text from the PC first.'); return; }
+
+    const payload = JSON.parse(decodeURIComponent(atob(raw)));
+    if (payload.type !== 'offer') throw new Error('That doesn\'t look like a valid room code text.');
+    if (payload.code !== codeTyped) throw new Error('That code doesn\'t match the connection text. Double-check both.');
+
+    setStatus('connecting', 'Requesting microphone…');
+
+    // Request microphone access — triggers the browser permission prompt
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    });
+
+    pc = createPeerConnection();
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+    startMeter(localStream);
+    liveCard.classList.remove('hidden');
+
+    await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await waitForIceGatheringComplete(pc);
+
+    const replyPayload = { type: 'answer', sdp: pc.localDescription };
+    answerBlob.value = btoa(encodeURIComponent(JSON.stringify(replyPayload)));
+    joinReplySection.classList.remove('hidden');
+
+    setStatus('connecting', 'Send the reply text back to the PC…');
+    showBanner('info', '📤 Copy the reply text below and send it back to the PC to finish connecting.');
+  } catch (err) {
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      showBanner('error', '🚫 Microphone permission was denied. Please allow microphone access in your browser settings and try again.');
+      setStatus('disconnected', 'Permission denied');
+    } else if (err.name === 'NotFoundError') {
+      showBanner('error', '🎙️ No microphone was found on this device.');
+      setStatus('disconnected', 'No microphone found');
+    } else {
+      handleError(err);
+    }
+  }
+});
+
+copyAnswerBtn.addEventListener('click', () => copyToClipboard(answerBlob.value, copyAnswerBtn));
+
+/* ----------------------------------------------------------------
+   8. SHARED HELPERS
+   ---------------------------------------------------------------- */
+
+// Waits until ICE candidate gathering finishes so the SDP blob is complete
+function waitForIceGatheringComplete(peer) {
+  return new Promise((resolve) => {
+    if (peer.iceGatheringState === 'complete') { resolve(); return; }
+    function check() {
+      if (peer.iceGatheringState === 'complete') {
+        peer.removeEventListener('icegatheringstatechange', check);
+        resolve();
+      }
+    }
+    peer.addEventListener('icegatheringstatechange', check);
+    // Safety timeout in case gathering stalls (still usable with host candidates)
+    setTimeout(resolve, 4000);
+  });
+}
+
+function copyToClipboard(text, btn) {
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    const original = btn.textContent;
+    btn.textContent = '✅ Copied';
+    setTimeout(() => { btn.textContent = original; }, 1500);
+  }).catch(() => {
+    showBanner('error', 'Could not copy automatically — please select and copy the text manually.');
+  });
+}
+
+function handleError(err, friendlyMsg) {
+  console.error(err);
+  setStatus('disconnected', 'Error');
+  showBanner('error', '⚠️ ' + (friendlyMsg || err.message || 'Something went wrong.'));
+}
+
+/* ----------------------------------------------------------------
+   9. MICROPHONE LEVEL METER
+   Uses the Web Audio API to analyse volume of either the local
+   mic stream (phone) or the incoming remote stream (PC).
+   ---------------------------------------------------------------- */
+function startMeter(stream) {
+  stopMeter(); // clear any previous instance
+
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audioCtx.createMediaStreamSource(stream);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 512;
+  source.connect(analyser);
+
+  const data = new Uint8Array(analyser.frequencyBinCount);
+
+  function tick() {
+    analyser.getByteTimeDomainData(data);
+    // Compute RMS (root-mean-square) volume from waveform samples
+    let sumSquares = 0;
+    for (let i = 0; i < data.length; i++) {
+      const norm = (data[i] - 128) / 128;
+      sumSquares += norm * norm;
+    }
+    const rms = Math.sqrt(sumSquares / data.length);
+    const pct = Math.min(100, Math.round(rms * 220)); // scaled for visibility
+    meterFill.style.width = pct + '%';
+    meterPct.textContent = pct + '%';
+    meterRAF = requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+function stopMeter() {
+  if (meterRAF) cancelAnimationFrame(meterRAF);
+  meterRAF = null;
+  if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+  meterFill.style.width = '0%';
+  meterPct.textContent = '0%';
+}
+
+/* ----------------------------------------------------------------
+   10. MUTE TOGGLE (phone side — disables the mic track)
+   ---------------------------------------------------------------- */
+btnMute.addEventListener('click', () => {
+  if (!localStream) {
+    showBanner('info', 'Mute only applies on the device sending audio (the phone).');
+    return;
+  }
+  isMuted = !isMuted;
+  localStream.getAudioTracks().forEach(track => { track.enabled = !isMuted; });
+  btnMute.classList.toggle('is-muted', isMuted);
+  btnMute.textContent = isMuted ? '🔇 Unmute' : '🎤 Mute';
+});
+
+/* ----------------------------------------------------------------
+   11. DISCONNECT — tears down peer connection & media tracks
+   ---------------------------------------------------------------- */
+btnDisconnect.addEventListener('click', () => {
+  teardown();
+  setStatus('disconnected', 'You ended the session');
+  showBanner('info', 'Session ended. Reload or click Create/Join Room to start a new one.');
+});
+
+function teardown() {
+  stopMeter();
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+  if (pc) {
+    pc.close();
+    pc = null;
+  }
+  remoteAudio.srcObject = null;
+  liveCard.classList.add('hidden');
+  isMuted = false;
+  btnMute.classList.remove('is-muted');
+  btnMute.textContent = '🎤 Mute';
+}
+
+/* ----------------------------------------------------------------
+   12. ENVIRONMENT / COMPATIBILITY CHECK
+   ---------------------------------------------------------------- */
+window.addEventListener('load', () => {
+  if (!window.RTCPeerConnection) {
+    showBanner('error', 'Your browser does not support WebRTC. Please use a recent version of Chrome, Edge, Firefox, or a Chromium-based Android browser.');
+  }
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.protocol !== 'file:') {
+    showBanner('info', 'ℹ️ Microphone access requires HTTPS (or localhost). If the join step fails on the phone, host this file over HTTPS.');
+  }
+  setStatus('waiting', 'Choose a role to begin');
+});
+
+// Clean up media/connections if the tab is closed
+window.addEventListener('beforeunload', teardown);
+</script>
+</body>
+</html>
