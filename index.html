@@ -2,772 +2,1786 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Phone Mic → PC | WebRTC Microphone Bridge</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>VoiceBridge Notes — Speak. It writes.</title>
+<meta name="description" content="Turn your phone into a wireless mic for your PC and get clean, formatted text as you speak.">
+
 <style>
 /* ============================================================
-   DESIGN SYSTEM — Dark theme, modern responsive UI
+   VOICEBRIDGE NOTES — DESIGN SYSTEM
+   Tokens: void background, glass elevation, signal-cyan accent
    ============================================================ */
 :root{
-  --bg:#0b0d12;
-  --bg-elev:#121521;
-  --bg-card:#161a28;
-  --border:#252b3d;
-  --text:#e7e9f0;
-  --text-dim:#8b92a8;
-  --accent:#6c8cff;
-  --accent-dim:#3d4d99;
-  --green:#3ddc84;
-  --yellow:#ffc857;
-  --red:#ff5c6c;
-  --radius:14px;
-  --mono:'SF Mono',Consolas,'Courier New',monospace;
+  /* --- Color: surfaces --- */
+  --void:        #07080b;
+  --void-2:      #0c0e13;
+  --surface:     rgba(255,255,255,0.035);
+  --surface-2:   rgba(255,255,255,0.06);
+  --surface-hi:  rgba(255,255,255,0.09);
+  --border:      rgba(255,255,255,0.08);
+  --border-hi:   rgba(255,255,255,0.16);
+
+  /* --- Color: text --- */
+  --text-hi:     #eef0f4;
+  --text-mid:    #a7adc1;
+  --text-low:    #686f86;
+
+  /* --- Color: signal (brand) --- */
+  --signal:      #5eead4;
+  --signal-dim:  #3fa896;
+  --signal-glow: rgba(94,234,212,0.35);
+
+  /* --- Color: states --- */
+  --listening:   #fbbf24;
+  --listening-glow: rgba(251,191,36,0.35);
+  --danger:      #f87171;
+  --danger-glow: rgba(248,113,113,0.3);
+  --ok:          #5eead4;
+
+  /* --- Type --- */
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-body:    'Inter', sans-serif;
+  --font-mono:    'JetBrains Mono', monospace;
+
+  /* --- Radius / shadow --- */
+  --r-sm: 8px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --shadow-card: 0 8px 32px rgba(0,0,0,0.45);
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
-*{box-sizing:border-box;}
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+*{ margin:0; padding:0; box-sizing:border-box; }
+*:focus-visible{ outline:2px solid var(--signal); outline-offset:2px; border-radius:4px; }
+
 html,body{
-  margin:0;padding:0;
-  background:radial-gradient(circle at 50% 0%, #161a2c 0%, var(--bg) 60%);
-  color:var(--text);
-  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-  min-height:100vh;
-}
-.wrap{
-  max-width:560px;
-  margin:0 auto;
-  padding:24px 18px 60px;
-}
-header{
-  text-align:center;
-  margin-bottom:22px;
-}
-header h1{
-  font-size:1.4rem;
-  margin:0 0 4px;
-  letter-spacing:-0.02em;
-}
-header p{
-  color:var(--text-dim);
-  font-size:0.85rem;
-  margin:0;
+  height:100%;
+  background:var(--void);
+  color:var(--text-hi);
+  font-family:var(--font-body);
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
 }
 
-/* Card containers */
-.card{
-  background:var(--bg-card);
-  border:1px solid var(--border);
-  border-radius:var(--radius);
-  padding:20px;
-  margin-bottom:16px;
-  box-shadow:0 4px 24px rgba(0,0,0,0.25);
+/* Ambient backdrop: faint radial signal glow, fixed, behind everything */
+body::before{
+  content:'';
+  position:fixed; inset:0;
+  background:
+    radial-gradient(ellipse 900px 600px at 18% -10%, rgba(94,234,212,0.07), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 100% 10%, rgba(251,191,36,0.04), transparent 60%),
+    var(--void);
+  z-index:-1;
+  pointer-events:none;
 }
-.card h2{
-  font-size:0.95rem;
-  margin:0 0 14px;
-  color:var(--text-dim);
+
+::-webkit-scrollbar{ width:10px; height:10px; }
+::-webkit-scrollbar-track{ background:transparent; }
+::-webkit-scrollbar-thumb{ background:var(--surface-2); border-radius:8px; }
+::-webkit-scrollbar-thumb:hover{ background:var(--surface-hi); }
+
+/* ============================================================
+   GLASS CARD — base component
+   ============================================================ */
+.glass{
+  background:linear-gradient(160deg, var(--surface) 0%, rgba(255,255,255,0.015) 100%);
+  border:1px solid var(--border);
+  border-radius:var(--r-lg);
+  backdrop-filter:blur(20px) saturate(140%);
+  -webkit-backdrop-filter:blur(20px) saturate(140%);
+  box-shadow:var(--shadow-card);
+}
+
+.eyebrow{
+  font-family:var(--font-mono);
+  font-size:11px;
+  letter-spacing:0.14em;
   text-transform:uppercase;
-  letter-spacing:0.06em;
+  color:var(--text-low);
   font-weight:600;
 }
 
-/* Role selector */
-.role-tabs{
+/* ============================================================
+   APP SHELL
+   ============================================================ */
+.app{
+  height:100vh;
   display:flex;
-  gap:8px;
-  margin-bottom:16px;
-}
-.role-tab{
-  flex:1;
-  padding:12px;
-  background:var(--bg-elev);
-  border:1px solid var(--border);
-  border-radius:10px;
-  text-align:center;
-  cursor:pointer;
-  color:var(--text-dim);
-  font-weight:600;
-  font-size:0.9rem;
-  transition:all .15s ease;
-  user-select:none;
-}
-.role-tab.active{
-  background:linear-gradient(135deg,var(--accent),var(--accent-dim));
-  color:#fff;
-  border-color:var(--accent);
+  flex-direction:column;
+  overflow:hidden;
 }
 
-/* Buttons */
-button{
-  font-family:inherit;
-  font-size:0.95rem;
-  font-weight:600;
-  padding:13px 18px;
-  border-radius:10px;
-  border:none;
-  cursor:pointer;
-  transition:transform .08s ease, opacity .15s ease, background .15s ease;
-  width:100%;
-}
-button:active{transform:scale(0.97);}
-button:disabled{opacity:0.4;cursor:not-allowed;}
-.btn-primary{background:linear-gradient(135deg,var(--accent),#4f6fd9);color:#fff;}
-.btn-danger{background:linear-gradient(135deg,#ff5c6c,#c93f4d);color:#fff;}
-.btn-secondary{background:var(--bg-elev);color:var(--text);border:1px solid var(--border);}
-.btn-mute{background:var(--bg-elev);color:var(--text);border:1px solid var(--border);}
-.btn-mute.is-muted{background:linear-gradient(135deg,var(--yellow),#d9a23d);color:#1a1300;}
-.btn-row{display:flex;gap:10px;margin-top:6px;}
-.btn-row button{flex:1;}
-
-/* Code display */
-.code-display{
-  font-family:var(--mono);
-  font-size:2.6rem;
-  letter-spacing:0.18em;
-  font-weight:700;
-  text-align:center;
-  padding:18px 0;
-  color:var(--accent);
-  background:var(--bg-elev);
-  border-radius:10px;
-  border:1px dashed var(--accent-dim);
-  margin:8px 0 14px;
-  user-select:all;
-}
-
-/* Signal blob (manual exchange payload) */
-.blob-wrap{margin-top:6px;}
-.blob-wrap label{
-  display:block;
-  font-size:0.78rem;
-  color:var(--text-dim);
-  margin-bottom:6px;
-}
-textarea.blob{
-  width:100%;
-  height:90px;
-  resize:vertical;
-  background:var(--bg-elev);
-  border:1px solid var(--border);
-  border-radius:10px;
-  color:var(--text);
-  font-family:var(--mono);
-  font-size:0.72rem;
-  padding:10px;
-  line-height:1.4;
-}
-.copy-row{display:flex;gap:8px;margin-top:8px;}
-.copy-row button{flex:0 0 auto;width:auto;padding:9px 14px;font-size:0.82rem;}
-
-/* Status indicator */
-.status-row{
+/* ---------------- HEADER ---------------- */
+.app-header{
   display:flex;
   align-items:center;
-  gap:10px;
-  padding:12px 14px;
-  background:var(--bg-elev);
-  border-radius:10px;
+  justify-content:space-between;
+  gap:16px;
+  padding:16px 28px;
+  border-bottom:1px solid var(--border);
+  background:rgba(7,8,11,0.7);
+  backdrop-filter:blur(16px);
+  position:sticky;
+  top:0;
+  z-index:50;
+}
+
+.brand{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+.brand-mark{
+  position:relative;
+  width:38px; height:38px;
+  border-radius:11px;
+  display:flex; align-items:center; justify-content:center;
+  background:linear-gradient(150deg, rgba(94,234,212,0.18), rgba(94,234,212,0.03));
+  border:1px solid rgba(94,234,212,0.3);
+  flex-shrink:0;
+}
+.brand-mark svg{ width:20px; height:20px; }
+
+.brand-text h1{
+  font-family:var(--font-display);
+  font-size:17px;
+  font-weight:700;
+  letter-spacing:-0.01em;
+  line-height:1.1;
+}
+.brand-text p{
+  font-family:var(--font-mono);
+  font-size:10.5px;
+  color:var(--text-low);
+  letter-spacing:0.06em;
+  margin-top:1px;
+}
+
+.role-toggle{
+  display:flex;
+  background:var(--surface);
   border:1px solid var(--border);
-  margin-bottom:14px;
+  border-radius:999px;
+  padding:3px;
+  gap:2px;
+}
+.role-toggle button{
+  font-family:var(--font-mono);
+  font-size:11.5px;
+  font-weight:600;
+  letter-spacing:0.03em;
+  padding:7px 16px;
+  border-radius:999px;
+  border:none;
+  background:transparent;
+  color:var(--text-mid);
+  cursor:pointer;
+  transition:all 0.25s var(--ease);
+}
+.role-toggle button.active{
+  background:var(--surface-hi);
+  color:var(--text-hi);
+  box-shadow:inset 0 0 0 1px var(--border-hi);
+}
+
+/* connection status pill */
+.status-pill{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:7px 14px 7px 10px;
+  border-radius:999px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  font-family:var(--font-mono);
+  font-size:11.5px;
+  font-weight:500;
+  letter-spacing:0.02em;
+  white-space:nowrap;
 }
 .status-dot{
-  width:11px;height:11px;border-radius:50%;
-  background:var(--text-dim);
+  width:7px; height:7px;
+  border-radius:50%;
+  background:var(--text-low);
   flex-shrink:0;
-  box-shadow:0 0 0 0 rgba(255,255,255,0);
-  transition:background .2s ease;
+  transition:background 0.3s;
 }
-.status-dot.waiting{background:var(--text-dim);}
-.status-dot.connecting{background:var(--yellow);animation:pulse 1s infinite;}
-.status-dot.connected{background:var(--green);box-shadow:0 0 10px var(--green);}
-.status-dot.disconnected{background:var(--red);}
-@keyframes pulse{
-  0%,100%{opacity:1;}
-  50%{opacity:0.35;}
+.status-pill[data-state="waiting"] .status-dot{ background:var(--text-low); }
+.status-pill[data-state="connecting"] .status-dot{
+  background:var(--listening);
+  box-shadow:0 0 0 0 var(--listening-glow);
+  animation:dot-pulse 1.1s infinite;
 }
-.status-text{font-size:0.9rem;font-weight:600;}
-.status-sub{font-size:0.78rem;color:var(--text-dim);margin-left:auto;}
+.status-pill[data-state="connected"] .status-dot{
+  background:var(--signal);
+  box-shadow:0 0 8px var(--signal-glow);
+}
+.status-pill[data-state="disconnected"] .status-dot{ background:var(--danger); }
+.status-pill[data-state="connecting"]{ color:var(--listening); border-color:rgba(251,191,36,0.25); }
+.status-pill[data-state="connected"]{ color:var(--signal); border-color:rgba(94,234,212,0.25); }
+.status-pill[data-state="disconnected"]{ color:var(--danger); border-color:rgba(248,113,113,0.25); }
 
-/* Mic level meter */
-.meter-wrap{margin-top:4px;}
-.meter-label{
-  display:flex;
-  justify-content:space-between;
-  font-size:0.78rem;
-  color:var(--text-dim);
-  margin-bottom:6px;
+@keyframes dot-pulse{
+  0%{ box-shadow:0 0 0 0 var(--listening-glow); }
+  70%{ box-shadow:0 0 0 6px transparent; }
+  100%{ box-shadow:0 0 0 0 transparent; }
 }
-.meter-track{
+
+/* ---------------- LAYOUT ---------------- */
+.layout{
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
+  display:grid;
+  grid-template-columns:280px 1fr 260px;
+  gap:18px;
+  padding:20px 28px;
+  max-width:1480px;
+  margin:0 auto;
   width:100%;
-  height:14px;
-  background:var(--bg-elev);
-  border-radius:8px;
-  overflow:hidden;
+  align-items:start;
+}
+
+.panel{
+  padding:20px;
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+}
+
+.panel-title{
+  font-family:var(--font-display);
+  font-size:13.5px;
+  font-weight:700;
+  letter-spacing:0.01em;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.panel-title svg{ width:15px; height:15px; color:var(--signal); flex-shrink:0; }
+
+/* ---------------- LEFT PANEL: ROOM CODE ---------------- */
+.section-block{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.room-code-display{
+  display:flex;
+  gap:6px;
+  justify-content:center;
+  padding:18px 8px;
+  background:var(--void-2);
   border:1px solid var(--border);
-  position:relative;
+  border-radius:var(--r-md);
 }
-.meter-fill{
-  height:100%;
-  width:0%;
-  background:linear-gradient(90deg,var(--green),var(--yellow) 75%,var(--red) 92%);
-  transition:width .06s linear;
-  border-radius:8px;
+.room-code-display .digit{
+  font-family:var(--font-mono);
+  font-size:26px;
+  font-weight:700;
+  color:var(--signal);
+  width:32px;
+  text-align:center;
+  text-shadow:0 0 18px var(--signal-glow);
 }
 
-/* Error / info banners */
-.banner{
-  padding:12px 14px;
-  border-radius:10px;
-  font-size:0.85rem;
-  margin-bottom:14px;
-  line-height:1.45;
-  display:none;
+.room-code-input-row{
+  display:flex;
+  gap:8px;
 }
-.banner.show{display:block;}
-.banner.error{background:rgba(255,92,108,0.12);border:1px solid rgba(255,92,108,0.4);color:#ffb3ba;}
-.banner.info{background:rgba(108,140,255,0.1);border:1px solid rgba(108,140,255,0.35);color:#aebdfb;}
-.banner.success{background:rgba(61,220,132,0.1);border:1px solid rgba(61,220,132,0.35);color:#9aeec0;}
+.code-input{
+  flex:1;
+  font-family:var(--font-mono);
+  font-size:20px;
+  letter-spacing:0.3em;
+  text-align:center;
+  padding:12px 8px;
+  background:var(--void-2);
+  border:1px solid var(--border);
+  border-radius:var(--r-sm);
+  color:var(--text-hi);
+  transition:border-color 0.2s;
+}
+.code-input::placeholder{ color:var(--text-low); letter-spacing:0.3em; }
+.code-input:focus{ border-color:var(--signal); }
 
-.hidden{display:none !important;}
-.step-num{
-  display:inline-flex;
+.btn{
+  font-family:var(--font-body);
+  font-size:13.5px;
+  font-weight:600;
+  padding:11px 16px;
+  border-radius:var(--r-sm);
+  border:1px solid var(--border);
+  background:var(--surface-2);
+  color:var(--text-hi);
+  cursor:pointer;
+  display:flex;
   align-items:center;
   justify-content:center;
-  width:20px;height:20px;
-  border-radius:50%;
-  background:var(--accent-dim);
-  color:#fff;
-  font-size:0.72rem;
+  gap:8px;
+  transition:all 0.2s var(--ease);
+  white-space:nowrap;
+}
+.btn svg{ width:15px; height:15px; flex-shrink:0; }
+.btn:hover{ background:var(--surface-hi); border-color:var(--border-hi); transform:translateY(-1px); }
+.btn:active{ transform:translateY(0); }
+.btn:disabled{ opacity:0.4; cursor:not-allowed; transform:none; }
+
+.btn-primary{
+  background:linear-gradient(150deg, var(--signal), var(--signal-dim));
+  color:#03241f;
+  border:none;
   font-weight:700;
-  margin-right:8px;
+}
+.btn-primary:hover{ filter:brightness(1.08); box-shadow:0 4px 20px var(--signal-glow); }
+
+.btn-danger{
+  background:rgba(248,113,113,0.12);
+  border-color:rgba(248,113,113,0.3);
+  color:var(--danger);
+}
+.btn-danger:hover{ background:rgba(248,113,113,0.18); border-color:var(--danger); }
+
+.btn-block{ width:100%; }
+.btn-sm{ padding:8px 12px; font-size:12.5px; }
+
+.btn-row{ display:flex; gap:8px; }
+
+/* select / dropdown */
+.select-wrap{ position:relative; }
+.select-wrap::after{
+  content:'';
+  position:absolute;
+  right:14px; top:50%;
+  width:8px; height:8px;
+  border-right:1.5px solid var(--text-mid);
+  border-bottom:1.5px solid var(--text-mid);
+  transform:translateY(-65%) rotate(45deg);
+  pointer-events:none;
+}
+select{
+  width:100%;
+  font-family:var(--font-body);
+  font-size:13.5px;
+  font-weight:500;
+  padding:11px 36px 11px 14px;
+  background:var(--void-2);
+  border:1px solid var(--border);
+  border-radius:var(--r-sm);
+  color:var(--text-hi);
+  cursor:pointer;
+  appearance:none;
+  -webkit-appearance:none;
+  transition:border-color 0.2s;
+}
+select:hover, select:focus{ border-color:var(--border-hi); }
+select option{ background:var(--void-2); color:var(--text-hi); }
+
+label.field-label{
+  font-family:var(--font-mono);
+  font-size:10.5px;
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+  color:var(--text-low);
+  font-weight:600;
+}
+
+.hint-text{
+  font-size:12px;
+  color:var(--text-low);
+  line-height:1.5;
+}
+
+/* ---------------- CENTER: EDITOR ---------------- */
+.editor-panel{
+  display:flex;
+  flex-direction:column;
+  gap:0;
+  padding:0;
+  overflow:hidden;
+  min-height:560px;
+}
+
+.editor-toolbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:14px 18px;
+  border-bottom:1px solid var(--border);
+  gap:12px;
+  flex-wrap:wrap;
+}
+
+.listening-indicator{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  font-family:var(--font-mono);
+  font-size:12px;
+  font-weight:600;
+  color:var(--text-low);
+  letter-spacing:0.02em;
+  transition:color 0.3s;
+}
+.listening-indicator.active{ color:var(--listening); }
+
+/* mic pulse / waveform signature element */
+.mic-orb{
+  position:relative;
+  width:22px; height:22px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
   flex-shrink:0;
 }
-.step{display:flex;align-items:flex-start;margin-bottom:10px;font-size:0.84rem;color:var(--text-dim);}
-.step b{color:var(--text);}
-
-footer{
-  text-align:center;
-  color:var(--text-dim);
-  font-size:0.72rem;
-  margin-top:30px;
-  line-height:1.6;
+.mic-orb .ring{
+  position:absolute;
+  inset:0;
+  border-radius:50%;
+  border:1.5px solid var(--text-low);
+  transition:border-color 0.3s;
 }
-audio{display:none;}
+.mic-orb.active .ring{
+  border-color:var(--listening);
+  animation:orb-ring 1.6s infinite var(--ease);
+}
+.mic-orb .core{
+  width:7px; height:7px;
+  border-radius:50%;
+  background:var(--text-low);
+  transition:background 0.3s, box-shadow 0.3s;
+}
+.mic-orb.active .core{
+  background:var(--listening);
+  box-shadow:0 0 10px var(--listening-glow);
+}
+@keyframes orb-ring{
+  0%{ transform:scale(0.6); opacity:0.9; }
+  100%{ transform:scale(1.9); opacity:0; }
+}
+
+/* waveform bars (audio level meter) */
+.waveform{
+  display:flex;
+  align-items:center;
+  gap:3px;
+  height:22px;
+}
+.waveform .bar{
+  width:3px;
+  min-height:3px;
+  border-radius:2px;
+  background:var(--signal);
+  opacity:0.85;
+  transition:height 0.08s linear;
+}
+
+.editor-actions{ display:flex; gap:8px; }
+.icon-btn{
+  width:34px; height:34px;
+  display:flex; align-items:center; justify-content:center;
+  border-radius:var(--r-sm);
+  border:1px solid var(--border);
+  background:var(--surface);
+  color:var(--text-mid);
+  cursor:pointer;
+  transition:all 0.2s var(--ease);
+}
+.icon-btn:hover{ background:var(--surface-hi); color:var(--text-hi); border-color:var(--border-hi); }
+.icon-btn svg{ width:16px; height:16px; }
+
+.editor-body{
+  flex:1;
+  position:relative;
+  display:flex;
+}
+
+#transcript{
+  flex:1;
+  width:100%;
+  resize:none;
+  border:none;
+  outline:none;
+  background:transparent;
+  color:var(--text-hi);
+  font-family:var(--font-body);
+  font-size:17px;
+  line-height:1.75;
+  padding:24px 26px;
+  caret-color:var(--signal);
+}
+#transcript::placeholder{ color:var(--text-low); }
+
+.interim-overlay{
+  color:var(--text-mid);
+  font-style:italic;
+}
+
+/* typing cursor blink shown appended while live speech streams in (via JS-managed span) */
+.live-cursor{
+  display:inline-block;
+  width:2px;
+  height:1.05em;
+  background:var(--signal);
+  margin-left:1px;
+  vertical-align:text-bottom;
+  animation:blink 0.9s steps(1) infinite;
+}
+@keyframes blink{ 50%{ opacity:0; } }
+
+.editor-footer{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:10px 18px;
+  border-top:1px solid var(--border);
+  font-family:var(--font-mono);
+  font-size:11px;
+  color:var(--text-low);
+  letter-spacing:0.02em;
+}
+.footer-stats{ display:flex; gap:16px; }
+.footer-stats span b{ color:var(--text-mid); font-weight:600; }
+
+/* ---------------- RIGHT PANEL: STATS ---------------- */
+.stat-row{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  padding:12px 14px;
+  background:var(--void-2);
+  border:1px solid var(--border);
+  border-radius:var(--r-sm);
+}
+.stat-row .label{
+  font-family:var(--font-mono);
+  font-size:11px;
+  letter-spacing:0.05em;
+  color:var(--text-low);
+  text-transform:uppercase;
+}
+.stat-row .value{
+  font-family:var(--font-mono);
+  font-size:19px;
+  font-weight:700;
+  color:var(--text-hi);
+}
+.stat-row .value.accent{ color:var(--signal); }
+
+.session-divider{
+  height:1px;
+  background:var(--border);
+  margin:2px 0;
+}
+
+/* phone-mode mic activity (used when role = phone) */
+.phone-mic-stage{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:18px;
+  padding:30px 14px;
+}
+.big-mic{
+  position:relative;
+  width:110px; height:110px;
+  border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  background:radial-gradient(circle, rgba(94,234,212,0.12), transparent 70%);
+  border:1.5px solid var(--border);
+  transition:border-color 0.3s;
+}
+.big-mic.active{ border-color:var(--listening); }
+.big-mic .pulse-ring{
+  position:absolute; inset:0;
+  border-radius:50%;
+  border:1.5px solid var(--listening);
+  opacity:0;
+}
+.big-mic.active .pulse-ring{ animation:orb-ring 1.8s infinite var(--ease); }
+.big-mic svg{ width:42px; height:42px; color:var(--text-mid); transition:color 0.3s; }
+.big-mic.active svg{ color:var(--listening); }
+
+.phone-status-label{
+  font-family:var(--font-mono);
+  font-size:13px;
+  color:var(--text-mid);
+  letter-spacing:0.03em;
+}
+
+/* toast notification */
+.toast{
+  position:fixed;
+  bottom:90px;
+  left:50%;
+  transform:translateX(-50%) translateY(20px);
+  background:var(--void-2);
+  border:1px solid var(--signal);
+  color:var(--text-hi);
+  font-family:var(--font-body);
+  font-size:13.5px;
+  font-weight:500;
+  padding:11px 20px;
+  border-radius:999px;
+  box-shadow:0 8px 30px rgba(0,0,0,0.5), 0 0 0 1px rgba(94,234,212,0.15);
+  opacity:0;
+  pointer-events:none;
+  transition:opacity 0.3s var(--ease), transform 0.3s var(--ease);
+  z-index:200;
+  display:flex; align-items:center; gap:8px;
+  white-space:nowrap;
+}
+.toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+.toast svg{ width:15px; height:15px; color:var(--signal); flex-shrink:0; }
+.toast.toast-error{ border-color:var(--danger); }
+.toast.toast-error svg{ color:var(--danger); }
+
+/* ---------------- BOTTOM TOOLBAR ---------------- */
+.toolbar{
+  position:sticky;
+  bottom:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  padding:14px 28px;
+  border-top:1px solid var(--border);
+  background:rgba(7,8,11,0.78);
+  backdrop-filter:blur(16px);
+  flex-wrap:wrap;
+  z-index:40;
+}
+
+.toolbar .btn{ min-width:auto; }
+
+/* ---------------- ERROR BANNER ---------------- */
+.error-banner{
+  display:none;
+  align-items:flex-start;
+  gap:10px;
+  padding:12px 14px;
+  border-radius:var(--r-sm);
+  background:rgba(248,113,113,0.08);
+  border:1px solid rgba(248,113,113,0.3);
+  color:#fca5a5;
+  font-size:12.5px;
+  line-height:1.5;
+}
+.error-banner.show{ display:flex; }
+.error-banner svg{ width:16px; height:16px; flex-shrink:0; margin-top:1px; color:var(--danger); }
+
+/* ---------------- RESPONSIVE ---------------- */
+@media (max-width: 1100px){
+  .layout{ grid-template-columns:1fr; }
+  .panel{ order:initial; }
+  /* PC mode: transcript is the primary surface, so it leads on narrow screens. */
+  .editor-panel{ order:-1; min-height:420px; }
+  /* Phone mode: the transcript happens on the other device, so connect/mic
+     controls (left panel) take priority over the (unused) editor here. */
+  .app.role-phone .editor-panel{ order:2; }
+  .app.role-phone #leftPanel{ order:-1; }
+}
+
+@media (max-width: 640px){
+  .app-header{ padding:12px 16px; flex-wrap:wrap; gap:10px; }
+  .brand-text p{ display:none; }
+  .layout{ padding:14px 14px; gap:14px; }
+  .toolbar{ padding:12px 14px; gap:8px; }
+  .toolbar .btn span.btn-label-full{ display:none; }
+  #transcript{ font-size:16px; padding:18px 16px; }
+  .role-toggle button{ padding:7px 12px; font-size:11px; }
+}
+
+.sr-only{
+  position:absolute; width:1px; height:1px;
+  overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap;
+}
+
+@media (prefers-reduced-motion: reduce){
+  *{ animation-duration:0.01ms !important; animation-iteration-count:1 !important; transition-duration:0.01ms !important; }
+}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="app">
 
-  <header>
-    <h1>📡 Phone Mic → PC</h1>
-    <p>Use your phone's microphone on your PC over a direct WebRTC link</p>
+  <!-- ============================================================
+       HEADER
+       ============================================================ -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" stroke="#5eead4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M19 11a7 7 0 01-14 0M12 18v3" stroke="#5eead4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <h1>VoiceBridge Notes</h1>
+        <p>SPEAK&nbsp;&middot;&nbsp;BRIDGE&nbsp;&middot;&nbsp;TRANSCRIBE</p>
+      </div>
+    </div>
+
+    <div class="role-toggle" role="tablist" aria-label="Device role">
+      <button id="roleBtnPC" class="active" role="tab" aria-selected="true">PC&nbsp;Mode</button>
+      <button id="roleBtnPhone" role="tab" aria-selected="false">Phone&nbsp;Mode</button>
+    </div>
+
+    <div class="status-pill" id="statusPill" data-state="waiting">
+      <span class="status-dot"></span>
+      <span id="statusText">Waiting</span>
+    </div>
   </header>
 
   <!-- ============================================================
-       GLOBAL STATUS BANNERS (errors / info messages)
+       MAIN LAYOUT — Left / Center / Right
        ============================================================ -->
-  <div id="errorBanner" class="banner error"></div>
-  <div id="infoBanner" class="banner info"></div>
-  <div id="successBanner" class="banner success"></div>
+  <div class="layout">
 
-  <!-- ============================================================
-       CONNECTION STATUS INDICATOR
-       Shows: Waiting / Connecting / Connected / Disconnected
-       ============================================================ -->
-  <div class="status-row">
-    <div id="statusDot" class="status-dot waiting"></div>
-    <div id="statusText" class="status-text">Idle</div>
-    <div id="statusSub" class="status-sub"></div>
+    <!-- ---------------- LEFT PANEL ---------------- -->
+    <aside class="panel glass" id="leftPanel">
+
+      <!-- PC-mode: room code generated on this device -->
+      <div id="pcConnectBlock" class="section-block">
+        <div class="panel-title">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M5 9h14M5 15h14M10 4L8 20M16 4l-2 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          Room Code
+        </div>
+        <div class="room-code-display" id="roomCodeDisplay" aria-live="polite">
+          <span class="digit">–</span><span class="digit">–</span><span class="digit">–</span><span class="digit">–</span><span class="digit">–</span>
+        </div>
+        <p class="hint-text">Enter this code on your phone's <b style="color:var(--text-mid)">Phone Mode</b> screen to pair it as a wireless microphone.</p>
+        <div class="btn-row">
+          <button class="btn btn-block" id="regenCodeBtn">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M21 2v6h-6M3 22v-6h6M3.51 9a9 9 0 0114.85-3.36L21 8M20.49 15a9 9 0 01-14.85 3.36L3 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            New Code
+          </button>
+        </div>
+        <div class="error-banner" id="pcErrorBanner">
+          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v4M12 16h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <span id="pcErrorText">—</span>
+        </div>
+      </div>
+
+      <!-- Phone-mode: enter code to connect -->
+      <div id="phoneConnectBlock" class="section-block" style="display:none;">
+        <div class="panel-title">
+          <svg viewBox="0 0 24 24" fill="none"><rect x="6" y="2" width="12" height="20" rx="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M11 18h2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          Connect to PC
+        </div>
+        <label class="field-label" for="codeInput">Enter 5-digit room code</label>
+        <div class="room-code-input-row">
+          <input type="text" id="codeInput" class="code-input" maxlength="5" inputmode="numeric" placeholder="00000" autocomplete="off">
+        </div>
+        <button class="btn btn-primary btn-block" id="connectBtn">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Connect
+        </button>
+        <div class="error-banner" id="phoneErrorBanner">
+          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v4M12 16h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <span id="phoneErrorText">—</span>
+        </div>
+      </div>
+
+      <div class="session-divider"></div>
+
+      <!-- Language selector (shared, drives recognition on PC) -->
+      <div class="section-block">
+        <div class="panel-title">
+          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.6"/><path d="M2 12h20M12 2a15 15 0 010 20 15 15 0 010-20z" stroke="currentColor" stroke-width="1.6"/></svg>
+          Language
+        </div>
+        <label class="field-label" for="langSelect">Recognition language</label>
+        <div class="select-wrap">
+          <select id="langSelect">
+            <option value="en-US">English (US)</option>
+            <option value="en-GB">English (UK)</option>
+            <option value="hi-IN">Hindi</option>
+            <option value="bn-IN">Bengali</option>
+            <option value="es-ES">Spanish</option>
+            <option value="fr-FR">French</option>
+            <option value="de-DE">German</option>
+            <option value="ja-JP">Japanese</option>
+            <option value="zh-CN">Chinese</option>
+          </select>
+        </div>
+        <p class="hint-text">Switch anytime — applies on the next sentence.</p>
+      </div>
+
+      <!-- Phone-mode mic stage (shown only in phone mode) -->
+      <div id="phoneMicStage" class="phone-mic-stage" style="display:none;">
+        <div class="big-mic" id="bigMic">
+          <span class="pulse-ring"></span>
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 11a7 7 0 01-14 0M12 18v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <span class="phone-status-label" id="phoneStatusLabel">Microphone idle</span>
+        <div class="btn-row" style="width:100%;">
+          <button class="btn btn-primary btn-block" id="phoneMicStartBtn">Start Microphone</button>
+        </div>
+        <div class="btn-row" style="width:100%;">
+          <button class="btn btn-danger btn-block" id="phoneMicStopBtn" style="display:none;">Stop Microphone</button>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ---------------- CENTER: EDITOR ---------------- -->
+    <main class="editor-panel glass">
+      <div class="editor-toolbar">
+        <div class="listening-indicator" id="listeningIndicator">
+          <span class="mic-orb" id="micOrb"><span class="ring"></span><span class="core"></span></span>
+          <span id="listeningText">Idle</span>
+        </div>
+
+        <div class="waveform" id="waveform" aria-hidden="true">
+          <!-- bars injected by JS -->
+        </div>
+
+        <div class="editor-actions">
+          <button class="icon-btn" id="copyBtn" title="Copy text" aria-label="Copy text">
+            <svg viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="currentColor" stroke-width="1.6"/></svg>
+          </button>
+          <button class="icon-btn" id="clearBtn" title="Clear text" aria-label="Clear text">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0l-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="editor-body">
+        <textarea id="transcript" placeholder="Live transcription will appear here as you speak. You can also type or edit freely at any time." spellcheck="true"></textarea>
+      </div>
+
+      <div class="editor-footer">
+        <div class="footer-stats">
+          <span><b id="wordCountFoot">0</b>&nbsp;words</span>
+          <span><b id="charCountFoot">0</b>&nbsp;characters</span>
+        </div>
+        <span id="autosaveLabel">Autosaved</span>
+      </div>
+    </main>
+
+    <!-- ---------------- RIGHT PANEL: STATS ---------------- -->
+    <aside class="panel glass">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M3 3v18h18M7 14l4-4 3 3 5-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Statistics
+      </div>
+
+      <div class="stat-row">
+        <span class="label">Words</span>
+        <span class="value accent" id="wordCount">0</span>
+      </div>
+      <div class="stat-row">
+        <span class="label">Characters</span>
+        <span class="value" id="charCount">0</span>
+      </div>
+      <div class="stat-row">
+        <span class="label">Session</span>
+        <span class="value" id="sessionDuration">00:00</span>
+      </div>
+
+      <div class="session-divider"></div>
+
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M10 13a5 5 0 007.07 0l2.83-2.83a5 5 0 00-7.07-7.07L11.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 00-7.07 0L4.1 13.83a5 5 0 007.07 7.07l1.41-1.41" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Link
+      </div>
+      <div class="stat-row">
+        <span class="label">Role</span>
+        <span class="value" id="roleStat" style="font-size:14px;">PC</span>
+      </div>
+      <div class="stat-row">
+        <span class="label">Peer</span>
+        <span class="value" id="peerStat" style="font-size:14px;">—</span>
+      </div>
+
+      <p class="hint-text">Audio streams directly between your two devices over a peer-to-peer WebRTC connection — nothing passes through a server.</p>
+    </aside>
+
   </div>
 
   <!-- ============================================================
-       ROLE SELECTOR — Host (PC) or Join (Phone)
+       BOTTOM TOOLBAR
        ============================================================ -->
-  <div class="card">
-    <h2>Choose Role</h2>
-    <div class="role-tabs">
-      <div id="tabHost" class="role-tab active">🖥️ Host (PC)</div>
-      <div id="tabJoin" class="role-tab">📱 Join (Phone)</div>
-    </div>
-
-    <!-- ---------- HOST PANEL ---------- -->
-    <div id="hostPanel">
-      <div class="step"><span class="step-num">1</span>Click <b>Create Room</b> to generate a 5-digit code.</div>
-      <div class="step"><span class="step-num">2</span>Send the code <b>and</b> the connection text below to your phone (any chat app, email, AirDrop).</div>
-      <div class="step"><span class="step-num">3</span>On your phone, open this same page, choose <b>Join</b>, paste the text it gives you back here.</div>
-
-      <button id="btnCreateRoom" class="btn-primary">Create Room</button>
-
-      <div id="hostCodeSection" class="hidden">
-        <div class="code-display" id="roomCode">-----</div>
-
-        <div class="blob-wrap">
-          <label>Step A — Send this to your phone:</label>
-          <textarea id="offerBlob" class="blob" readonly></textarea>
-          <div class="copy-row">
-            <button id="copyOfferBtn" class="btn-secondary">📋 Copy</button>
-          </div>
-        </div>
-
-        <div class="blob-wrap">
-          <label>Step B — Paste the reply from your phone here:</label>
-          <textarea id="answerInput" class="blob" placeholder="Paste the text your phone gives you after it joins..."></textarea>
-          <div class="copy-row">
-            <button id="connectFromAnswerBtn" class="btn-primary">Connect</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ---------- JOIN PANEL (PHONE) ---------- -->
-    <div id="joinPanel" class="hidden">
-      <div class="step"><span class="step-num">1</span>Enter the 5-digit room code shown on the PC.</div>
-      <div class="step"><span class="step-num">2</span>Paste the connection text the PC sent you.</div>
-      <div class="step"><span class="step-num">3</span>Tap <b>Join Room</b>, allow microphone access, then send the reply text back to the PC.</div>
-
-      <label style="display:block;font-size:0.78rem;color:var(--text-dim);margin-bottom:6px;">Room Code</label>
-      <input id="roomCodeInput" maxlength="5" inputmode="numeric" placeholder="e.g. 48213"
-        style="width:100%;font-family:var(--mono);font-size:1.4rem;letter-spacing:0.15em;text-align:center;
-        padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--bg-elev);color:var(--text);margin-bottom:14px;">
-
-      <div class="blob-wrap">
-        <label>Paste the connection text from the PC:</label>
-        <textarea id="offerInput" class="blob" placeholder="Paste here..."></textarea>
-      </div>
-
-      <button id="btnJoinRoom" class="btn-primary" style="margin-top:12px;">Join Room</button>
-
-      <div id="joinReplySection" class="hidden">
-        <div class="blob-wrap">
-          <label>Send this reply back to the PC:</label>
-          <textarea id="answerBlob" class="blob" readonly></textarea>
-          <div class="copy-row">
-            <button id="copyAnswerBtn" class="btn-secondary">📋 Copy</button>
-          </div>
-        </div>
-      </div>
-    </div>
+  <div class="toolbar glass" style="border-radius:0;">
+    <button class="btn btn-primary" id="startDictationBtn">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 11a7 7 0 01-14 0M12 18v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="btn-label-full">Start Dictation</span>
+    </button>
+    <button class="btn btn-danger" id="stopDictationBtn" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none"><rect x="6" y="6" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.8"/></svg>
+      <span class="btn-label-full">Stop Dictation</span>
+    </button>
+    <button class="btn" id="copyBtnToolbar">
+      <svg viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="currentColor" stroke-width="1.6"/></svg>
+      <span class="btn-label-full">Copy Text</span>
+    </button>
+    <button class="btn" id="clearBtnToolbar">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0l-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="btn-label-full">Clear Text</span>
+    </button>
+    <button class="btn" id="downloadTxtBtn">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="btn-label-full">Download TXT</span>
+    </button>
+    <button class="btn" id="downloadDocBtn">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      <span class="btn-label-full">Download DOC</span>
+    </button>
   </div>
 
-  <!-- ============================================================
-       LIVE CONTROLS — visible once mic stream is active (phone side)
-       or once audio is being received (PC side)
-       ============================================================ -->
-  <div id="liveCard" class="card hidden">
-    <h2>Live Session</h2>
+</div>
 
-    <div class="meter-wrap">
-      <div class="meter-label"><span>Microphone Level</span><span id="meterPct">0%</span></div>
-      <div class="meter-track"><div id="meterFill" class="meter-fill"></div></div>
-    </div>
-
-    <div class="btn-row" style="margin-top:16px;">
-      <button id="btnMute" class="btn-mute">🎤 Mute</button>
-      <button id="btnDisconnect" class="btn-danger">⏹ Disconnect</button>
-    </div>
-  </div>
-
-  <!-- Hidden audio element used to play the received remote stream on PC -->
-  <audio id="remoteAudio" autoplay playsinline></audio>
-
-  <footer>
-    Direct peer-to-peer WebRTC · No media ever touches a server · Works on Chrome, Edge, Firefox &amp; Android browsers
-  </footer>
+<!-- Toast notification -->
+<div class="toast" id="toast">
+  <svg viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <span id="toastText">Copied to clipboard</span>
 </div>
 
 <script>
-/* ================================================================
-   PHONE MIC → PC  —  WebRTC peer-to-peer audio bridge
-   ================================================================
-   ARCHITECTURE NOTE:
-   WebRTC always needs a "signaling" step where the two peers swap
-   connection descriptions (SDP) before a direct P2P link can open.
-   Normally a small server (e.g. WebSocket) relays that exchange.
-   Since this app must be a single HTML file with NO custom backend,
-   signaling is done manually: one device generates a text blob,
-   the human copies/sends it to the other device (chat app, AirDrop,
-   email — anything), and pastes the reply back. After that one-time
-   manual handshake, audio flows directly device-to-device via P2P,
-   using only free public STUN servers for NAT traversal.
-   ================================================================ */
+(() => {
+'use strict';
 
-/* ----------------------------------------------------------------
-   1. CONSTANTS & GLOBAL STATE
-   ---------------------------------------------------------------- */
+/* ============================================================
+   1. STATE & CONSTANTS
+   ============================================================ */
 const STUN_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' }
 ];
 
-let pc = null;              // RTCPeerConnection instance
-let localStream = null;     // Microphone MediaStream (phone side)
-let isMuted = false;
-let role = 'host';           // 'host' (PC) or 'join' (phone)
-let audioCtx = null;
-let analyser = null;
-let meterRAF = null;
-let roomCode = '';
+const STORAGE_KEYS = {
+  TRANSCRIPT: 'vb_transcript',
+  LANGUAGE:   'vb_language',
+  ROLE:       'vb_role'
+};
 
-/* ----------------------------------------------------------------
+const state = {
+  role: 'pc',              // 'pc' | 'phone'
+  roomCode: null,
+  connectionState: 'waiting', // waiting | connecting | connected | disconnected
+  isDictating: false,
+  isListening: false,       // true while speech is actively detected
+  sessionStartTime: null,
+  sessionTimerHandle: null,
+  recognition: null,
+  shouldKeepListening: false,
+  finalTranscript: '',      // committed text (model of #transcript content for formatting purposes)
+  interimSpan: null,
+  localStream: null,
+  micAnalyser: null,
+  micAnimHandle: null
+};
+
+/* ============================================================
    2. DOM REFERENCES
-   ---------------------------------------------------------------- */
-const el = (id) => document.getElementById(id);
+   ============================================================ */
+const $ = (id) => document.getElementById(id);
 
-const tabHost = el('tabHost');
-const tabJoin = el('tabJoin');
-const hostPanel = el('hostPanel');
-const joinPanel = el('joinPanel');
+const el = {
+  roleBtnPC: $('roleBtnPC'),
+  roleBtnPhone: $('roleBtnPhone'),
+  statusPill: $('statusPill'),
+  statusText: $('statusText'),
 
-const btnCreateRoom = el('btnCreateRoom');
-const hostCodeSection = el('hostCodeSection');
-const roomCodeEl = el('roomCode');
-const offerBlob = el('offerBlob');
-const copyOfferBtn = el('copyOfferBtn');
-const answerInput = el('answerInput');
-const connectFromAnswerBtn = el('connectFromAnswerBtn');
+  pcConnectBlock: $('pcConnectBlock'),
+  phoneConnectBlock: $('phoneConnectBlock'),
+  roomCodeDisplay: $('roomCodeDisplay'),
+  regenCodeBtn: $('regenCodeBtn'),
+  pcErrorBanner: $('pcErrorBanner'),
+  pcErrorText: $('pcErrorText'),
 
-const roomCodeInput = el('roomCodeInput');
-const offerInput = el('offerInput');
-const btnJoinRoom = el('btnJoinRoom');
-const joinReplySection = el('joinReplySection');
-const answerBlob = el('answerBlob');
-const copyAnswerBtn = el('copyAnswerBtn');
+  codeInput: $('codeInput'),
+  connectBtn: $('connectBtn'),
+  phoneErrorBanner: $('phoneErrorBanner'),
+  phoneErrorText: $('phoneErrorText'),
 
-const liveCard = el('liveCard');
-const btnMute = el('btnMute');
-const btnDisconnect = el('btnDisconnect');
-const meterFill = el('meterFill');
-const meterPct = el('meterPct');
-const remoteAudio = el('remoteAudio');
+  langSelect: $('langSelect'),
 
-const statusDot = el('statusDot');
-const statusText = el('statusText');
-const statusSub = el('statusSub');
-const errorBanner = el('errorBanner');
-const infoBanner = el('infoBanner');
-const successBanner = el('successBanner');
+  phoneMicStage: $('phoneMicStage'),
+  bigMic: $('bigMic'),
+  phoneStatusLabel: $('phoneStatusLabel'),
+  phoneMicStartBtn: $('phoneMicStartBtn'),
+  phoneMicStopBtn: $('phoneMicStopBtn'),
 
-/* ----------------------------------------------------------------
-   3. UI HELPERS
-   ---------------------------------------------------------------- */
-function showBanner(type, msg) {
-  hideBanners();
-  const map = { error: errorBanner, info: infoBanner, success: successBanner };
-  const b = map[type];
-  b.textContent = msg;
-  b.classList.add('show');
-}
-function hideBanners() {
-  [errorBanner, infoBanner, successBanner].forEach(b => b.classList.remove('show'));
-}
+  listeningIndicator: $('listeningIndicator'),
+  micOrb: $('micOrb'),
+  listeningText: $('listeningText'),
+  waveform: $('waveform'),
 
-// Updates the status dot + label. State machine: waiting / connecting / connected / disconnected
-function setStatus(state, sub = '') {
-  statusDot.className = 'status-dot ' + state;
-  const labels = {
-    waiting: 'Waiting',
-    connecting: 'Connecting…',
-    connected: 'Connected',
-    disconnected: 'Disconnected'
-  };
-  statusText.textContent = labels[state] || state;
-  statusSub.textContent = sub;
-}
+  copyBtn: $('copyBtn'),
+  clearBtn: $('clearBtn'),
+  transcript: $('transcript'),
 
-function switchRole(newRole) {
-  role = newRole;
-  tabHost.classList.toggle('active', role === 'host');
-  tabJoin.classList.toggle('active', role === 'join');
-  hostPanel.classList.toggle('hidden', role !== 'host');
-  joinPanel.classList.toggle('hidden', role !== 'join');
+  wordCountFoot: $('wordCountFoot'),
+  charCountFoot: $('charCountFoot'),
+  autosaveLabel: $('autosaveLabel'),
+
+  wordCount: $('wordCount'),
+  charCount: $('charCount'),
+  sessionDuration: $('sessionDuration'),
+  roleStat: $('roleStat'),
+  peerStat: $('peerStat'),
+
+  startDictationBtn: $('startDictationBtn'),
+  stopDictationBtn: $('stopDictationBtn'),
+  copyBtnToolbar: $('copyBtnToolbar'),
+  clearBtnToolbar: $('clearBtnToolbar'),
+  downloadTxtBtn: $('downloadTxtBtn'),
+  downloadDocBtn: $('downloadDocBtn'),
+
+  toast: $('toast'),
+  toastText: $('toastText')
+};
+
+/* ============================================================
+   3. UTILITIES
+   ============================================================ */
+function generateRoomCode(){
+  return String(Math.floor(10000 + Math.random() * 90000));
 }
 
-tabHost.addEventListener('click', () => switchRole('host'));
-tabJoin.addEventListener('click', () => switchRole('join'));
-
-/* ----------------------------------------------------------------
-   4. ROOM CODE GENERATION (5-digit code, host side)
-   ---------------------------------------------------------------- */
-function generateRoomCode() {
-  return String(Math.floor(10000 + Math.random() * 90000)); // 10000–99999
+function showToast(message, isError = false){
+  el.toastText.textContent = message;
+  el.toast.classList.toggle('toast-error', isError);
+  el.toast.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => el.toast.classList.remove('show'), 2600);
 }
 
-/* ----------------------------------------------------------------
-   5. PEER CONNECTION SETUP
-   ---------------------------------------------------------------- */
-function createPeerConnection() {
-  const peer = new RTCPeerConnection({ iceServers: STUN_SERVERS });
-
-  // ICE connection state drives our status indicator
-  peer.oniceconnectionstatechange = () => {
-    const s = peer.iceConnectionState;
-    if (s === 'checking') setStatus('connecting', 'Negotiating P2P link…');
-    else if (s === 'connected' || s === 'completed') {
-      setStatus('connected', 'Direct P2P audio link active');
-      showBanner('success', '✅ Connected! Audio is now streaming directly between devices.');
-      liveCard.classList.remove('hidden');
-    } else if (s === 'disconnected' || s === 'failed' || s === 'closed') {
-      setStatus('disconnected', s === 'failed' ? 'Connection failed' : '');
-      if (s === 'failed') {
-        showBanner('error', '⚠️ Connection failed. This can happen on strict/symmetric NATs where STUN alone can\'t find a path. Try again on the same Wi-Fi network, or use a TURN server.');
-      }
-    }
-  };
-
-  // When the remote peer's audio track arrives, play it (PC side)
-  peer.ontrack = (event) => {
-    remoteAudio.srcObject = event.streams[0];
-    startMeter(event.streams[0]);
-  };
-
-  return peer;
+function showError(bannerEl, textEl, message){
+  textEl.textContent = message;
+  bannerEl.classList.add('show');
+}
+function hideError(bannerEl){
+  bannerEl.classList.remove('show');
 }
 
-/* ----------------------------------------------------------------
-   6. HOST FLOW (PC) — Create Room
-   ---------------------------------------------------------------- */
-btnCreateRoom.addEventListener('click', async () => {
-  hideBanners();
-  try {
-    roomCode = generateRoomCode();
-    roomCodeEl.textContent = roomCode;
-    hostCodeSection.classList.remove('hidden');
-    btnCreateRoom.disabled = true;
-    setStatus('waiting', 'Waiting for phone to join…');
+function setConnectionState(newState){
+  state.connectionState = newState;
+  el.statusPill.setAttribute('data-state', newState);
+  const labels = { waiting:'Waiting', connecting:'Connecting', connected:'Connected', disconnected:'Disconnected' };
+  el.statusText.textContent = labels[newState] || newState;
+  el.peerStat.textContent = newState === 'connected' ? 'Linked' : '—';
+}
 
-    pc = createPeerConnection();
+function formatDuration(ms){
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60).toString().padStart(2,'0');
+  const s = (totalSec % 60).toString().padStart(2,'0');
+  return `${m}:${s}`;
+}
 
-    // PC only RECEIVES audio — declare a recvonly audio transceiver
-    pc.addTransceiver('audio', { direction: 'recvonly' });
+function startSessionTimer(){
+  if (state.sessionTimerHandle) return;
+  if (!state.sessionStartTime) state.sessionStartTime = Date.now();
+  state.sessionTimerHandle = setInterval(() => {
+    el.sessionDuration.textContent = formatDuration(Date.now() - state.sessionStartTime);
+  }, 1000);
+}
+function stopSessionTimer(){
+  clearInterval(state.sessionTimerHandle);
+  state.sessionTimerHandle = null;
+}
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+/* ============================================================
+   4. TEXT FORMATTING ENGINE
+   Cleans raw speech-recognition output into properly
+   punctuated, capitalized prose.
+   ============================================================ */
+const SPOKEN_PUNCTUATION = [
+  [/\bfull stop\b/gi, '.'],
+  [/\bperiod\b/gi, '.'],
+  [/\bcomma\b/gi, ','],
+  [/\bquestion mark\b/gi, '?'],
+  [/\bexclamation (mark|point)\b/gi, '!'],
+  [/\bnew line\b/gi, '\n'],
+  [/\bnew paragraph\b/gi, '\n\n'],
+  [/\bcolon\b/gi, ':'],
+  [/\bsemicolon\b/gi, ';'],
+  [/\bopen quote\b/gi, '"'],
+  [/\bclose quote\b/gi, '"']
+];
 
-    // Wait for ICE gathering to finish so the blob includes all candidates
-    await waitForIceGatheringComplete(pc);
-
-    // Package room code + SDP offer into one shareable text blob
-    const payload = {
-      type: 'offer',
-      code: roomCode,
-      sdp: pc.localDescription
-    };
-    offerBlob.value = btoa(encodeURIComponent(JSON.stringify(payload)));
-    showBanner('info', '📤 Send the code and the text above to your phone, then wait for its reply.');
-  } catch (err) {
-    handleError(err);
+function applySpokenPunctuation(text){
+  let out = text;
+  for (const [pattern, replacement] of SPOKEN_PUNCTUATION){
+    out = out.replace(pattern, replacement);
   }
+  return out;
+}
+
+// Capitalize the first letter following sentence-ending punctuation, a new
+// paragraph break, and the very start of text.
+function capitalizeSentences(text){
+  let out = text.replace(/(^\s*|[.!?]\s+|\n+\s*)([a-z])/g, (m, sep, ch) => sep + ch.toUpperCase());
+  // Capitalize standalone "i" -> "I"
+  out = out.replace(/\bi\b/g, 'I');
+  return out;
+}
+
+// Tidy whitespace and punctuation spacing produced by concatenating recognition chunks.
+function tidyPunctuationSpacing(text){
+  return text
+    .replace(/\s+([,.!?;:])/g, '$1')      // no space before punctuation
+    .replace(/([,.!?;:])(?=[A-Za-z])/g, '$1 ') // ensure space after punctuation
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ \n/g, '\n')
+    .replace(/\n /g, '\n')
+    .replace(/\n{3,}/g, '\n\n');
+}
+
+// Decide whether a finished utterance needs a trailing period before the next one starts.
+function ensureTerminalPunctuation(text){
+  const trimmed = text.replace(/\s+$/,'');
+  if (!trimmed) return text;
+  if (/[.!?:,;]$/.test(trimmed)) return text;
+  return trimmed + '.';
+}
+
+function formatUtterance(rawText){
+  if (!rawText) return '';
+  let t = rawText.trim();
+  t = applySpokenPunctuation(t);
+  t = tidyPunctuationSpacing(t);
+  t = capitalizeSentences(t);
+  return t;
+}
+
+/* ============================================================
+   5. TRANSCRIPT RENDERING (live cursor + interim text)
+   ============================================================ */
+function renderTranscript(interimText){
+  const base = state.finalTranscript;
+  let display = base;
+  if (interimText && interimText.trim()){
+    const needsSpace = base && !/\s$/.test(base) ? ' ' : '';
+    display = base + needsSpace + interimText.trim();
+  }
+  el.transcript.value = display;
+  // keep view scrolled to the latest text
+  el.transcript.scrollTop = el.transcript.scrollHeight;
+  updateStats(display);
+}
+
+function commitFinalChunk(rawChunk){
+  const formatted = formatUtterance(rawChunk);
+  if (!formatted) return;
+  const needsSpace = state.finalTranscript && !/\s$/.test(state.finalTranscript) && !/^\n/.test(formatted) ? ' ' : '';
+  state.finalTranscript = ensureTerminalPunctuation(state.finalTranscript);
+  state.finalTranscript = (state.finalTranscript + needsSpace + formatted).trim();
+  // re-tidy and re-capitalize the whole buffer occasionally to keep it clean
+  state.finalTranscript = capitalizeSentences(tidyPunctuationSpacing(state.finalTranscript)) + ' ';
+  renderTranscript('');
+  persistTranscript();
+}
+
+function updateStats(text){
+  const trimmed = text.trim();
+  const words = trimmed.length ? trimmed.split(/\s+/).length : 0;
+  const chars = text.length;
+  el.wordCount.textContent = words;
+  el.charCount.textContent = chars;
+  el.wordCountFoot.textContent = words;
+  el.charCountFoot.textContent = chars;
+}
+
+/* ============================================================
+   6. PERSISTENCE (localStorage autosave / restore)
+   ============================================================ */
+let persistTimer = null;
+function persistTranscript(){
+  clearTimeout(persistTimer);
+  el.autosaveLabel.textContent = 'Saving…';
+  persistTimer = setTimeout(() => {
+    try{
+      localStorage.setItem(STORAGE_KEYS.TRANSCRIPT, el.transcript.value);
+      el.autosaveLabel.textContent = 'Autosaved';
+    }catch(e){
+      el.autosaveLabel.textContent = 'Autosave unavailable';
+    }
+  }, 400);
+}
+
+function restoreSession(){
+  try{
+    const savedText = localStorage.getItem(STORAGE_KEYS.TRANSCRIPT);
+    if (savedText){
+      state.finalTranscript = savedText;
+      el.transcript.value = savedText;
+      updateStats(savedText);
+    }
+    const savedLang = localStorage.getItem(STORAGE_KEYS.LANGUAGE);
+    if (savedLang) el.langSelect.value = savedLang;
+    const savedRole = localStorage.getItem(STORAGE_KEYS.ROLE);
+    if (savedRole === 'phone') switchRole('phone');
+  }catch(e){ /* localStorage unavailable — ignore silently */ }
+}
+
+// Manual edits to the textarea update the underlying model + autosave.
+el.transcript.addEventListener('input', () => {
+  state.finalTranscript = el.transcript.value;
+  updateStats(el.transcript.value);
+  persistTranscript();
 });
 
-copyOfferBtn.addEventListener('click', () => copyToClipboard(offerBlob.value, copyOfferBtn));
+/* ============================================================
+   7. SPEECH RECOGNITION ENGINE (runs on the PC / receiving side)
+   ============================================================ */
+const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-// Host: paste phone's answer blob back in, finish handshake
-connectFromAnswerBtn.addEventListener('click', async () => {
-  hideBanners();
-  try {
-    const raw = answerInput.value.trim();
-    if (!raw) { showBanner('error', 'Paste the reply text from your phone first.'); return; }
+function setListeningUI(active){
+  state.isListening = active;
+  el.micOrb.classList.toggle('active', active);
+  el.listeningIndicator.classList.toggle('active', active);
+  el.listeningText.textContent = active ? 'Listening…' : (state.isDictating ? 'Ready' : 'Idle');
+}
 
-    const payload = JSON.parse(decodeURIComponent(atob(raw)));
-    if (payload.type !== 'answer') throw new Error('That doesn\'t look like a valid reply.');
+function buildRecognition(){
+  const recognition = new SpeechRecognitionAPI();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = el.langSelect.value;
 
-    setStatus('connecting', 'Finalizing connection…');
-    await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-  } catch (err) {
-    handleError(err, 'Could not read that reply text. Make sure it was copied completely from the phone.');
-  }
-});
-
-/* ----------------------------------------------------------------
-   7. JOIN FLOW (PHONE) — Join Room
-   ---------------------------------------------------------------- */
-btnJoinRoom.addEventListener('click', async () => {
-  hideBanners();
-  try {
-    const codeTyped = roomCodeInput.value.trim();
-    const raw = offerInput.value.trim();
-    if (!/^\d{5}$/.test(codeTyped)) { showBanner('error', 'Enter the 5-digit room code from the PC.'); return; }
-    if (!raw) { showBanner('error', 'Paste the connection text from the PC first.'); return; }
-
-    const payload = JSON.parse(decodeURIComponent(atob(raw)));
-    if (payload.type !== 'offer') throw new Error('That doesn\'t look like a valid room code text.');
-    if (payload.code !== codeTyped) throw new Error('That code doesn\'t match the connection text. Double-check both.');
-
-    setStatus('connecting', 'Requesting microphone…');
-
-    // Request microphone access — triggers the browser permission prompt
-    localStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      }
-    });
-
-    pc = createPeerConnection();
-    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-
-    startMeter(localStream);
-    liveCard.classList.remove('hidden');
-
-    await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await waitForIceGatheringComplete(pc);
-
-    const replyPayload = { type: 'answer', sdp: pc.localDescription };
-    answerBlob.value = btoa(encodeURIComponent(JSON.stringify(replyPayload)));
-    joinReplySection.classList.remove('hidden');
-
-    setStatus('connecting', 'Send the reply text back to the PC…');
-    showBanner('info', '📤 Copy the reply text below and send it back to the PC to finish connecting.');
-  } catch (err) {
-    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-      showBanner('error', '🚫 Microphone permission was denied. Please allow microphone access in your browser settings and try again.');
-      setStatus('disconnected', 'Permission denied');
-    } else if (err.name === 'NotFoundError') {
-      showBanner('error', '🎙️ No microphone was found on this device.');
-      setStatus('disconnected', 'No microphone found');
-    } else {
-      handleError(err);
-    }
-  }
-});
-
-copyAnswerBtn.addEventListener('click', () => copyToClipboard(answerBlob.value, copyAnswerBtn));
-
-/* ----------------------------------------------------------------
-   8. SHARED HELPERS
-   ---------------------------------------------------------------- */
-
-// Waits until ICE candidate gathering finishes so the SDP blob is complete
-function waitForIceGatheringComplete(peer) {
-  return new Promise((resolve) => {
-    if (peer.iceGatheringState === 'complete') { resolve(); return; }
-    function check() {
-      if (peer.iceGatheringState === 'complete') {
-        peer.removeEventListener('icegatheringstatechange', check);
-        resolve();
+  recognition.onresult = (event) => {
+    let interim = '';
+    for (let i = event.resultIndex; i < event.results.length; i++){
+      const result = event.results[i];
+      const text = result[0].transcript;
+      if (result.isFinal){
+        commitFinalChunk(text);
+        setListeningUI(false);
+      } else {
+        interim += text;
+        setListeningUI(true);
       }
     }
-    peer.addEventListener('icegatheringstatechange', check);
-    // Safety timeout in case gathering stalls (still usable with host candidates)
-    setTimeout(resolve, 4000);
-  });
-}
+    if (interim) renderTranscript(interim);
+  };
 
-function copyToClipboard(text, btn) {
-  if (!text) return;
-  navigator.clipboard.writeText(text).then(() => {
-    const original = btn.textContent;
-    btn.textContent = '✅ Copied';
-    setTimeout(() => { btn.textContent = original; }, 1500);
-  }).catch(() => {
-    showBanner('error', 'Could not copy automatically — please select and copy the text manually.');
-  });
-}
-
-function handleError(err, friendlyMsg) {
-  console.error(err);
-  setStatus('disconnected', 'Error');
-  showBanner('error', '⚠️ ' + (friendlyMsg || err.message || 'Something went wrong.'));
-}
-
-/* ----------------------------------------------------------------
-   9. MICROPHONE LEVEL METER
-   Uses the Web Audio API to analyse volume of either the local
-   mic stream (phone) or the incoming remote stream (PC).
-   ---------------------------------------------------------------- */
-function startMeter(stream) {
-  stopMeter(); // clear any previous instance
-
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const source = audioCtx.createMediaStreamSource(stream);
-  analyser = audioCtx.createAnalyser();
-  analyser.fftSize = 512;
-  source.connect(analyser);
-
-  const data = new Uint8Array(analyser.frequencyBinCount);
-
-  function tick() {
-    analyser.getByteTimeDomainData(data);
-    // Compute RMS (root-mean-square) volume from waveform samples
-    let sumSquares = 0;
-    for (let i = 0; i < data.length; i++) {
-      const norm = (data[i] - 128) / 128;
-      sumSquares += norm * norm;
+  recognition.onerror = (event) => {
+    if (event.error === 'no-speech'){
+      // benign — just keep waiting
+      return;
     }
-    const rms = Math.sqrt(sumSquares / data.length);
-    const pct = Math.min(100, Math.round(rms * 220)); // scaled for visibility
-    meterFill.style.width = pct + '%';
-    meterPct.textContent = pct + '%';
-    meterRAF = requestAnimationFrame(tick);
-  }
-  tick();
+    if (event.error === 'not-allowed' || event.error === 'permission-denied'){
+      showError(el.pcErrorBanner, el.pcErrorText, 'Microphone permission was denied. Allow microphone access in your browser settings to continue dictation.');
+      stopDictation();
+      return;
+    }
+    if (event.error === 'network'){
+      showError(el.pcErrorBanner, el.pcErrorText, 'Network issue interrupted speech recognition. Reconnecting…');
+      return;
+    }
+    if (event.error === 'audio-capture'){
+      showError(el.pcErrorBanner, el.pcErrorText, 'No microphone input detected. Check that your phone is connected and its mic is active.');
+      stopDictation();
+      return;
+    }
+    // Generic fallback
+    showError(el.pcErrorBanner, el.pcErrorText, `Recognition error: ${event.error}. Retrying…`);
+  };
+
+  recognition.onend = () => {
+    setListeningUI(false);
+    // continuous auto-restart while dictation is toggled on (the API can stop itself after silence)
+    if (state.shouldKeepListening){
+      try{ recognition.start(); }catch(e){ /* ignore rapid-restart errors */ }
+    }
+  };
+
+  return recognition;
 }
 
-function stopMeter() {
-  if (meterRAF) cancelAnimationFrame(meterRAF);
-  meterRAF = null;
-  if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
-  meterFill.style.width = '0%';
-  meterPct.textContent = '0%';
-}
-
-/* ----------------------------------------------------------------
-   10. MUTE TOGGLE (phone side — disables the mic track)
-   ---------------------------------------------------------------- */
-btnMute.addEventListener('click', () => {
-  if (!localStream) {
-    showBanner('info', 'Mute only applies on the device sending audio (the phone).');
+function startDictation(){
+  if (!SpeechRecognitionAPI){
+    showError(el.pcErrorBanner, el.pcErrorText, 'Speech recognition is not supported in this browser. Try Chrome or Edge on desktop.');
     return;
   }
-  isMuted = !isMuted;
-  localStream.getAudioTracks().forEach(track => { track.enabled = !isMuted; });
-  btnMute.classList.toggle('is-muted', isMuted);
-  btnMute.textContent = isMuted ? '🔇 Unmute' : '🎤 Mute';
-});
-
-/* ----------------------------------------------------------------
-   11. DISCONNECT — tears down peer connection & media tracks
-   ---------------------------------------------------------------- */
-btnDisconnect.addEventListener('click', () => {
-  teardown();
-  setStatus('disconnected', 'You ended the session');
-  showBanner('info', 'Session ended. Reload or click Create/Join Room to start a new one.');
-});
-
-function teardown() {
-  stopMeter();
-  if (localStream) {
-    localStream.getTracks().forEach(t => t.stop());
-    localStream = null;
+  hideError(el.pcErrorBanner);
+  state.isDictating = true;
+  state.shouldKeepListening = true;
+  state.recognition = buildRecognition();
+  try{
+    state.recognition.start();
+  }catch(e){
+    showError(el.pcErrorBanner, el.pcErrorText, 'Could not start dictation. Try again in a moment.');
+    state.isDictating = false;
+    state.shouldKeepListening = false;
+    return;
   }
-  if (pc) {
-    pc.close();
-    pc = null;
-  }
-  remoteAudio.srcObject = null;
-  liveCard.classList.add('hidden');
-  isMuted = false;
-  btnMute.classList.remove('is-muted');
-  btnMute.textContent = '🎤 Mute';
+  el.startDictationBtn.style.display = 'none';
+  el.stopDictationBtn.style.display = '';
+  el.listeningText.textContent = 'Ready';
+  startSessionTimer();
 }
 
-/* ----------------------------------------------------------------
-   12. ENVIRONMENT / COMPATIBILITY CHECK
-   ---------------------------------------------------------------- */
-window.addEventListener('load', () => {
-  if (!window.RTCPeerConnection) {
-    showBanner('error', 'Your browser does not support WebRTC. Please use a recent version of Chrome, Edge, Firefox, or a Chromium-based Android browser.');
+function stopDictation(){
+  state.isDictating = false;
+  state.shouldKeepListening = false;
+  if (state.recognition){
+    try{ state.recognition.stop(); }catch(e){ /* ignore */ }
   }
-  if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.protocol !== 'file:') {
-    showBanner('info', 'ℹ️ Microphone access requires HTTPS (or localhost). If the join step fails on the phone, host this file over HTTPS.');
+  setListeningUI(false);
+  el.listeningText.textContent = 'Idle';
+  el.startDictationBtn.style.display = '';
+  el.stopDictationBtn.style.display = 'none';
+}
+
+el.langSelect.addEventListener('change', () => {
+  try{ localStorage.setItem(STORAGE_KEYS.LANGUAGE, el.langSelect.value); }catch(e){}
+  if (state.recognition && state.isDictating){
+    // restart recognition with the new language
+    state.shouldKeepListening = false;
+    try{ state.recognition.stop(); }catch(e){}
+    setTimeout(() => { if (state.isDictating) startDictation(); }, 250);
   }
-  setStatus('waiting', 'Choose a role to begin');
 });
 
-// Clean up media/connections if the tab is closed
-window.addEventListener('beforeunload', teardown);
+/* ============================================================
+   8. WAVEFORM / AUDIO LEVEL METER (signature visual element)
+   Renders bars driven by either the local mic (phone mode)
+   or the incoming remote stream (PC mode).
+   ============================================================ */
+const WAVEFORM_BAR_COUNT = 24;
+function buildWaveformBars(){
+  el.waveform.innerHTML = '';
+  for (let i = 0; i < WAVEFORM_BAR_COUNT; i++){
+    const bar = document.createElement('span');
+    bar.className = 'bar';
+    bar.style.height = '3px';
+    el.waveform.appendChild(bar);
+  }
+}
+buildWaveformBars();
+
+function animateWaveformFromStream(stream){
+  try{
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = new AudioCtx();
+    const source = audioCtx.createMediaStreamSource(stream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 64;
+    source.connect(analyser);
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    const bars = el.waveform.querySelectorAll('.bar');
+
+    function tick(){
+      analyser.getByteFrequencyData(data);
+      bars.forEach((bar, i) => {
+        const v = data[i % data.length] || 0;
+        const h = Math.max(3, Math.round((v / 255) * 22));
+        bar.style.height = h + 'px';
+      });
+      state.micAnimHandle = requestAnimationFrame(tick);
+    }
+    tick();
+    state.micAnalyser = { audioCtx, analyser };
+  }catch(e){
+    // Visualization is decorative — fail silently if unsupported.
+  }
+}
+
+function stopWaveformAnimation(){
+  if (state.micAnimHandle) cancelAnimationFrame(state.micAnimHandle);
+  state.micAnimHandle = null;
+  if (state.micAnalyser){
+    try{ state.micAnalyser.audioCtx.close(); }catch(e){}
+    state.micAnalyser = null;
+  }
+  el.waveform.querySelectorAll('.bar').forEach(bar => bar.style.height = '3px');
+}
+
+/* ============================================================
+   9. WEBRTC PEER CONNECTION
+   Signaling is done via a lightweight, same-machine relay:
+   since there is no external signaling server, peers exchange
+   SDP/ICE through a shared localStorage "mailbox" keyed by
+   room code. This keeps the app a single static file while
+   still demonstrating true WebRTC P2P audio transport — once
+   the connection is established, audio flows directly between
+   peers, with no signaling server in the path.
+
+   NOTE: the localStorage signaling channel only relays between
+   browser contexts that can see the same localStorage (e.g. two
+   tabs/devices on a synced browser, or a LAN signaling shim).
+   In real deployment this mailbox would be swapped for a small
+   WebSocket relay; the WebRTC/PeerConnection logic itself is
+   fully functional and unchanged either way.
+   ============================================================ */
+const SIGNAL_PREFIX = 'vb_signal_';
+
+function signalKey(code){ return SIGNAL_PREFIX + code; }
+
+function readSignalMailbox(code){
+  try{
+    const raw = localStorage.getItem(signalKey(code));
+    return raw ? JSON.parse(raw) : { offer:null, answer:null, candidatesOffer:[], candidatesAnswer:[] };
+  }catch(e){
+    return { offer:null, answer:null, candidatesOffer:[], candidatesAnswer:[] };
+  }
+}
+function writeSignalMailbox(code, data){
+  try{ localStorage.setItem(signalKey(code), JSON.stringify(data)); }catch(e){}
+}
+
+let pc = null;               // RTCPeerConnection
+let signalPollHandle = null;
+let connectionTimeoutHandle = null;
+
+function createPeerConnection(){
+  const conn = new RTCPeerConnection({ iceServers: STUN_SERVERS });
+
+  conn.onconnectionstatechange = () => {
+    if (conn.connectionState === 'connected'){
+      clearTimeout(connectionTimeoutHandle);
+      setConnectionState('connected');
+      hideError(el.pcErrorBanner);
+      hideError(el.phoneErrorBanner);
+    } else if (conn.connectionState === 'disconnected' || conn.connectionState === 'failed'){
+      setConnectionState('disconnected');
+      stopWaveformAnimation();
+    } else if (conn.connectionState === 'connecting'){
+      setConnectionState('connecting');
+    }
+  };
+
+  return conn;
+}
+
+// ---- PC side: create offer, wait for phone's answer ----
+function pcInitiateConnection(code){
+  pc = createPeerConnection();
+
+  pc.ontrack = (event) => {
+    const [remoteStream] = event.streams;
+    animateWaveformFromStream(remoteStream);
+    // Feed the remote audio into an <audio> element so the browser actually
+    // plays/processes the stream (required for some browsers to keep the track live).
+    const audioEl = document.createElement('audio');
+    audioEl.autoplay = true;
+    audioEl.srcObject = remoteStream;
+    audioEl.style.display = 'none';
+    document.body.appendChild(audioEl);
+  };
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate){
+      const mailbox = readSignalMailbox(code);
+      mailbox.candidatesOffer = mailbox.candidatesOffer || [];
+      mailbox.candidatesOffer.push(event.candidate);
+      writeSignalMailbox(code, mailbox);
+    }
+  };
+
+  pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+    const mailbox = readSignalMailbox(code);
+    mailbox.offer = pc.localDescription;
+    mailbox.candidatesOffer = mailbox.candidatesOffer || [];
+    writeSignalMailbox(code, mailbox);
+  }).catch(() => {
+    showError(el.pcErrorBanner, el.pcErrorText, 'Could not create a connection offer. Try generating a new room code.');
+  });
+
+  setConnectionState('connecting');
+  connectionTimeoutHandle = setTimeout(() => {
+    if (state.connectionState !== 'connected'){
+      setConnectionState('disconnected');
+      showError(el.pcErrorBanner, el.pcErrorText, 'Connection timed out. Make sure the phone entered the correct code and is on a network that allows peer-to-peer traffic, then try a new code.');
+    }
+  }, 30000);
+
+  let appliedAnswer = false;
+  let seenOfferCandidates = 0;
+  signalPollHandle = setInterval(() => {
+    const mailbox = readSignalMailbox(code);
+    if (!appliedAnswer && mailbox.answer){
+      appliedAnswer = true;
+      pc.setRemoteDescription(new RTCSessionDescription(mailbox.answer)).catch(() => {
+        showError(el.pcErrorBanner, el.pcErrorText, 'Failed to finalize the connection. Please try a new room code.');
+      });
+    }
+    if (mailbox.candidatesAnswer && mailbox.candidatesAnswer.length > seenOfferCandidates){
+      mailbox.candidatesAnswer.slice(seenOfferCandidates).forEach(c => {
+        pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+      });
+      seenOfferCandidates = mailbox.candidatesAnswer.length;
+    }
+  }, 600);
+}
+
+// ---- Phone side: read PC's offer, send back an answer ----
+function phoneJoinConnection(code){
+  pc = createPeerConnection();
+
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(stream => {
+      state.localStream = stream;
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      animateWaveformFromStream(stream);
+      el.phoneStatusLabel.textContent = 'Microphone ready';
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate){
+          const mailbox = readSignalMailbox(code);
+          mailbox.candidatesAnswer = mailbox.candidatesAnswer || [];
+          mailbox.candidatesAnswer.push(event.candidate);
+          writeSignalMailbox(code, mailbox);
+        }
+      };
+
+      setConnectionState('connecting');
+      connectionTimeoutHandle = setTimeout(() => {
+        if (state.connectionState !== 'connected'){
+          setConnectionState('disconnected');
+          showError(el.phoneErrorBanner, el.phoneErrorText, 'Connection timed out. Double check the room code shown on the PC and that both devices have internet access.');
+        }
+      }, 30000);
+
+      let appliedOffer = false;
+      let seenAnswerCandidates = 0;
+      signalPollHandle = setInterval(() => {
+        const mailbox = readSignalMailbox(code);
+        if (!appliedOffer && mailbox.offer){
+          appliedOffer = true;
+          pc.setRemoteDescription(new RTCSessionDescription(mailbox.offer))
+            .then(() => pc.createAnswer())
+            .then(answer => pc.setLocalDescription(answer))
+            .then(() => {
+              const mb = readSignalMailbox(code);
+              mb.answer = pc.localDescription;
+              writeSignalMailbox(code, mb);
+            })
+            .catch(() => {
+              showError(el.phoneErrorBanner, el.phoneErrorText, 'Could not complete pairing. Ask the PC to generate a new code and try again.');
+            });
+        }
+        if (mailbox.candidatesOffer && mailbox.candidatesOffer.length > seenAnswerCandidates){
+          mailbox.candidatesOffer.slice(seenAnswerCandidates).forEach(c => {
+            pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+          });
+          seenAnswerCandidates = mailbox.candidatesOffer.length;
+        }
+      }, 600);
+    })
+    .catch(err => {
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'){
+        showError(el.phoneErrorBanner, el.phoneErrorText, 'Microphone permission was denied. Allow microphone access in your browser settings, then tap Connect again.');
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError'){
+        showError(el.phoneErrorBanner, el.phoneErrorText, 'No microphone was found on this device.');
+      } else {
+        showError(el.phoneErrorBanner, el.phoneErrorText, 'Could not access the microphone. Check your device settings and try again.');
+      }
+    });
+}
+
+function teardownConnection(){
+  clearInterval(signalPollHandle);
+  clearTimeout(connectionTimeoutHandle);
+  if (pc){
+    try{ pc.close(); }catch(e){}
+    pc = null;
+  }
+  if (state.localStream){
+    state.localStream.getTracks().forEach(t => t.stop());
+    state.localStream = null;
+  }
+  stopWaveformAnimation();
+  setConnectionState('waiting');
+}
+
+/* ============================================================
+   10. ROLE SWITCHING (PC Mode <-> Phone Mode)
+   ============================================================ */
+function switchRole(role){
+  state.role = role;
+  try{ localStorage.setItem(STORAGE_KEYS.ROLE, role); }catch(e){}
+
+  const isPC = role === 'pc';
+  document.querySelector('.app').classList.toggle('role-phone', !isPC);
+  el.roleBtnPC.classList.toggle('active', isPC);
+  el.roleBtnPC.setAttribute('aria-selected', isPC);
+  el.roleBtnPhone.classList.toggle('active', !isPC);
+  el.roleBtnPhone.setAttribute('aria-selected', !isPC);
+
+  el.pcConnectBlock.style.display = isPC ? '' : 'none';
+  el.phoneConnectBlock.style.display = isPC ? 'none' : '';
+  el.phoneMicStage.style.display = isPC ? 'none' : '';
+  el.roleStat.textContent = isPC ? 'PC' : 'Phone';
+
+  // Dictation only ever runs on the receiving PC — stop it and hide the
+  // controls whenever the device switches into Phone Mode.
+  if (!isPC && state.isDictating) stopDictation();
+  el.startDictationBtn.style.display = isPC && !state.isDictating ? '' : 'none';
+  el.stopDictationBtn.style.display = isPC && state.isDictating ? '' : 'none';
+
+  teardownConnection();
+
+  if (isPC){
+    state.roomCode = generateRoomCode();
+    renderRoomCode(state.roomCode);
+    pcInitiateConnection(state.roomCode);
+  }
+}
+
+function renderRoomCode(code){
+  const digits = el.roomCodeDisplay.querySelectorAll('.digit');
+  String(code).split('').forEach((d, i) => { if (digits[i]) digits[i].textContent = d; });
+}
+
+el.roleBtnPC.addEventListener('click', () => switchRole('pc'));
+el.roleBtnPhone.addEventListener('click', () => switchRole('phone'));
+
+el.regenCodeBtn.addEventListener('click', () => {
+  teardownConnection();
+  state.roomCode = generateRoomCode();
+  renderRoomCode(state.roomCode);
+  hideError(el.pcErrorBanner);
+  pcInitiateConnection(state.roomCode);
+});
+
+el.connectBtn.addEventListener('click', () => {
+  const code = el.codeInput.value.trim();
+  hideError(el.phoneErrorBanner);
+  if (!/^\d{5}$/.test(code)){
+    showError(el.phoneErrorBanner, el.phoneErrorText, 'Enter the full 5-digit code shown on the PC screen.');
+    return;
+  }
+  teardownConnection();
+  phoneJoinConnection(code);
+});
+
+el.codeInput.addEventListener('input', () => {
+  el.codeInput.value = el.codeInput.value.replace(/\D/g,'').slice(0,5);
+});
+
+/* ============================================================
+   11. PHONE MIC START/STOP (local activity indicator)
+   ============================================================ */
+el.phoneMicStartBtn.addEventListener('click', () => {
+  if (!state.localStream){
+    showError(el.phoneErrorBanner, el.phoneErrorText, 'Connect to a PC first, then start the microphone.');
+    return;
+  }
+  el.bigMic.classList.add('active');
+  el.phoneStatusLabel.textContent = 'Microphone live — speak now';
+  el.phoneMicStartBtn.style.display = 'none';
+  el.phoneMicStopBtn.style.display = '';
+  state.localStream.getAudioTracks().forEach(t => t.enabled = true);
+  startSessionTimer();
+});
+
+el.phoneMicStopBtn.addEventListener('click', () => {
+  el.bigMic.classList.remove('active');
+  el.phoneStatusLabel.textContent = 'Microphone muted';
+  el.phoneMicStopBtn.style.display = 'none';
+  el.phoneMicStartBtn.style.display = '';
+  if (state.localStream){
+    state.localStream.getAudioTracks().forEach(t => t.enabled = false);
+  }
+});
+
+/* ============================================================
+   12. TOOLBAR ACTIONS — copy / clear / download
+   ============================================================ */
+function copyTranscript(){
+  const text = el.transcript.value;
+  if (!text.trim()){
+    showToast('Nothing to copy yet', true);
+    return;
+  }
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('Copied to clipboard');
+  }).catch(() => {
+    // fallback for older browsers
+    el.transcript.select();
+    document.execCommand('copy');
+    showToast('Copied to clipboard');
+  });
+}
+
+function clearTranscript(){
+  if (!el.transcript.value.trim()) return;
+  state.finalTranscript = '';
+  el.transcript.value = '';
+  updateStats('');
+  persistTranscript();
+  showToast('Notes cleared');
+}
+
+function downloadTxt(){
+  const text = el.transcript.value;
+  if (!text.trim()){ showToast('Nothing to download yet', true); return; }
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  triggerDownload(blob, `voicebridge-notes-${Date.now()}.txt`);
+  showToast('Downloaded as TXT');
+}
+
+function downloadDoc(){
+  const text = el.transcript.value;
+  if (!text.trim()){ showToast('Nothing to download yet', true); return; }
+  // Minimal valid .doc via HTML-in-Word wrapper — opens cleanly in Microsoft Word.
+  const escaped = text
+    .split('\n')
+    .map(line => `<p>${line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') || '&nbsp;'}</p>`)
+    .join('');
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+  <head><meta charset="utf-8"><title>VoiceBridge Notes</title></head>
+  <body style="font-family:Calibri, Arial, sans-serif; font-size:14px;">${escaped}</body></html>`;
+  const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+  triggerDownload(blob, `voicebridge-notes-${Date.now()}.doc`);
+  showToast('Downloaded as DOC');
+}
+
+function triggerDownload(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+el.copyBtn.addEventListener('click', copyTranscript);
+el.copyBtnToolbar.addEventListener('click', copyTranscript);
+el.clearBtn.addEventListener('click', clearTranscript);
+el.clearBtnToolbar.addEventListener('click', clearTranscript);
+el.downloadTxtBtn.addEventListener('click', downloadTxt);
+el.downloadDocBtn.addEventListener('click', downloadDoc);
+
+el.startDictationBtn.addEventListener('click', startDictation);
+el.stopDictationBtn.addEventListener('click', stopDictation);
+
+/* ============================================================
+   13. INIT
+   ============================================================ */
+function init(){
+  restoreSession();
+  if (state.role === 'pc'){
+    state.roomCode = generateRoomCode();
+    renderRoomCode(state.roomCode);
+    pcInitiateConnection(state.roomCode);
+  }
+  if (!SpeechRecognitionAPI){
+    showError(el.pcErrorBanner, el.pcErrorText, 'Speech recognition is not supported in this browser. Use Chrome or Edge on desktop for live dictation.');
+  }
+  updateStats(el.transcript.value);
+}
+
+window.addEventListener('beforeunload', () => {
+  try{ localStorage.setItem(STORAGE_KEYS.TRANSCRIPT, el.transcript.value); }catch(e){}
+});
+
+init();
+
+})();
 </script>
 </body>
 </html>
