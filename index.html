@@ -835,11 +835,12 @@ async function startDesktop(){
   document.getElementById('sidebar-duration').textContent='0:00:00';
   showScreen('desktop');
   sessionStart=Date.now();
+  startDesktopChannel();
   initWaveform();
   startAnalyticsLoop();
   startAutoSave();
   initSpeechRecognition();
-  showToast('Session '+sessionCode+' started','success');
+  showToast('Session '+sessionCode+' started — code: '+sessionCode,'success',5000);
   if(saved&&saved.text){
     if(confirm('Restore previous transcript for this session?')){
       transcriptText=saved.text;
@@ -1280,6 +1281,7 @@ let mobileSessionCode=null;
 let mobileNick=null;
 let mobileLang='en-US';
 let mobileDeviceId=null;
+let mobMuted=false;
 
 function joinSession(){
   const code=document.getElementById('join-code').value.trim();
@@ -1304,19 +1306,19 @@ function initMobileConnection(){
   try{
     broadcastChannel=new BroadcastChannel('typeflow_'+mobileSessionCode);
     broadcastChannel.onmessage=handleMobileChannelMessage;
-    broadcastChannel.postMessage({type:'JOIN',id:mobileDeviceId,nick:mobileNick,lang:mobileLang});
+    /* Send JOIN immediately, then retry twice to survive any timing gap */
+    function sendJoin(){broadcastChannel.postMessage({type:'JOIN',id:mobileDeviceId,nick:mobileNick,lang:mobileLang})}
+    sendJoin();
+    setTimeout(sendJoin,800);
+    setTimeout(sendJoin,2500);
     startMobileRecognition();
     mobileConnStart=Date.now();
     mobileDurationInterval=setInterval(updateMobileDuration,1000);
     updateMobileQuality();
     setInterval(updateMobileQuality,4000);
+    /* Heartbeat: re-announce presence every 8s in case desktop reloaded */
+    setInterval(()=>{if(broadcastChannel)broadcastChannel.postMessage({type:'JOIN',id:mobileDeviceId,nick:mobileNick,lang:mobileLang})},8000);
   }catch(e){showToast('Could not connect. Make sure the session is open in the same browser.','error')}
-}
-
-function handleMobileChannelMessage(e){
-  if(e.data.type==='PING'&&e.data.to===mobileDeviceId){
-    broadcastChannel.postMessage({type:'PONG',id:mobileDeviceId,nick:mobileNick});
-  }
 }
 
 function startMobileRecognition(){
@@ -1327,7 +1329,7 @@ function startMobileRecognition(){
   mobileSpeechRecognition.interimResults=true;
   mobileSpeechRecognition.lang=mobileLang;
   mobileSpeechRecognition.onresult=e=>{
-    if(isMuted)return;
+    if(mobMuted)return;
     let interim='',final='';
     for(let i=e.resultIndex;i<e.results.length;i++){
       const t=e.results[i][0].transcript;
@@ -1359,12 +1361,12 @@ function updateMobileQuality(){
 }
 
 function toggleMicMute(){
-  isMuted=!isMuted;
+  mobMuted=!mobMuted;
   const btn=document.getElementById('mob-mic-btn');
   const statusText=document.getElementById('mob-status-text');
   const statusSub=document.getElementById('mob-status-sub');
   const bars=document.querySelectorAll('.wave-bar-mini');
-  if(isMuted){
+  if(mobMuted){
     btn.classList.add('muted');
     btn.querySelector('svg').innerHTML='<path d="M19 11a7 7 0 0 1-14 0M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM3 3l18 18"/>';
     statusText.textContent='Muted';
@@ -1447,11 +1449,7 @@ function startDesktopChannel(){
   setInterval(()=>{Object.keys(connectedDevices).forEach(id=>{ch.postMessage({type:'PING',to:id})})},10000);
 }
 
-const _origStartDesktop=startDesktop;
-window.startDesktop=async function(){
-  await _origStartDesktop();
-  startDesktopChannel();
-};
+/* startDesktopChannel() is now called directly inside startDesktop() — see Fix 2 */
 
 /* ─── RESPONSIVE / MOBILE DETECTION ─── */
 function detectRole(){
