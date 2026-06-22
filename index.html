@@ -1,838 +1,1475 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VoiceBridge | Pro Audio & Transcription</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- PeerJS for WebRTC Signaling (No backend required) -->
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-    
-    <script>
-        // Tailwind Config
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        dark: '#0f172a',
-                        glass: 'rgba(255, 255, 255, 0.05)',
-                        glassBorder: 'rgba(255, 255, 255, 0.1)',
-                        primary: '#3b82f6',
-                        accent: '#0ea5e9'
-                    },
-                    animation: {
-                        'pulse-fast': 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-                    }
-                }
-            }
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TypeFlow Live — Real-Time Transcription Workspace</title>
+<style>
+:root {
+  --bg-deep: #080c14;
+  --bg-card: rgba(14, 20, 34, 0.85);
+  --bg-card2: rgba(20, 28, 48, 0.7);
+  --accent: #4f8ef7;
+  --accent2: #7c5cfc;
+  --accent3: #22d3a5;
+  --accent-glow: rgba(79,142,247,0.22);
+  --accent2-glow: rgba(124,92,252,0.18);
+  --danger: #f25c5c;
+  --warn: #f5a623;
+  --text-primary: #eaf0ff;
+  --text-secondary: #7a8ab0;
+  --text-muted: #3d4f72;
+  --border: rgba(79,142,247,0.13);
+  --border2: rgba(255,255,255,0.06);
+  --shadow: 0 8px 48px rgba(0,0,0,0.7);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --font-display: 'Inter', 'SF Pro Display', system-ui, sans-serif;
+  --transition: all 0.22s cubic-bezier(.4,0,.2,1);
+}
+[data-theme="light"] {
+  --bg-deep: #f0f4ff;
+  --bg-card: rgba(255,255,255,0.82);
+  --bg-card2: rgba(230,238,255,0.7);
+  --text-primary: #0d1b3e;
+  --text-secondary: #4a5a80;
+  --text-muted: #9aa5c0;
+  --border: rgba(79,142,247,0.18);
+  --border2: rgba(0,0,0,0.07);
+  --shadow: 0 8px 48px rgba(79,142,247,0.12);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-family:var(--font-display);background:var(--bg-deep);color:var(--text-primary);min-height:100vh;overflow-x:hidden}
+body{min-height:100vh;transition:background .3s}
 
-        // --- Global State ---
-        const state = {
-            role: null, // 'host' or 'guest'
-            roomCode: null,
-            nickname: null,
-            peerInstance: null, // PeerJS instance
-            peers: {}, // { uid: { conn, call, nickname, muted, stream, audioEl, analyser, dataArray } }
-            localStream: null,
-            conn: null, // Guest's data connection
-            call: null, // Guest's media call
-            recognition: null,
-            isRecording: false,
-            transcriptState: {
-                fullText: '',
-                interim: '',
-                lastInputTime: Date.now(),
-                wordCount: 0,
-                charCount: 0
-            },
-            startTime: null,
-            timerInterval: null
-        };
+/* ─── FONTS & ANIMATIONS ─── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes waveBar{0%,100%{height:4px}50%{height:22px}}
+@keyframes ripple{0%{transform:scale(1);opacity:.7}100%{transform:scale(2.5);opacity:0}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes gradientShift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+@keyframes slideInLeft{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:none}}
+@keyframes slideInRight{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+@keyframes glow{0%,100%{box-shadow:0 0 8px var(--accent-glow)}50%{box-shadow:0 0 28px var(--accent-glow)}}
+@keyframes typing{from{width:0}to{width:100%}}
+@keyframes ping{0%{transform:scale(1);opacity:1}75%,100%{transform:scale(2);opacity:0}}
 
-        // --- Utility Functions ---
-        const $ = (id) => document.getElementById(id);
-        const generateCode = () => Math.floor(10000 + Math.random() * 90000).toString();
-        const showView = (id) => {
-            ['view-home', 'view-host', 'view-guest'].forEach(v => $(v).classList.add('hidden'));
-            $(id).classList.remove('hidden');
-        };
-        const formatTime = (seconds) => {
-            const h = Math.floor(seconds / 3600);
-            const m = Math.floor((seconds % 3600) / 60);
-            const s = Math.floor(seconds % 60);
-            return `${h > 0 ? h + ':' : ''}${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-        };
+/* ─── SCREENS ─── */
+.screen{display:none;min-height:100vh;animation:fadeIn .38s ease}
+.screen.active{display:flex}
 
-        function showNotification(msg, type = 'info') {
-            const notif = document.createElement('div');
-            notif.className = `fixed top-4 right-4 p-4 rounded-xl backdrop-blur-md border text-white shadow-2xl transition-all transform translate-x-full z-50 flex items-center gap-3
-                ${type === 'error' ? 'bg-red-500/20 border-red-500/50' : 'bg-primary/20 border-primary/50'}`;
-            
-            notif.innerHTML = `
-                <i data-lucide="${type === 'error' ? 'alert-circle' : 'info'}" class="w-5 h-5"></i>
-                <span class="font-medium">${msg}</span>
-            `;
-            document.body.appendChild(notif);
-            lucide.createIcons();
-            
-            setTimeout(() => notif.classList.remove('translate-x-full'), 100);
-            setTimeout(() => {
-                notif.classList.add('translate-x-full');
-                setTimeout(() => notif.remove(), 300);
-            }, 3000);
-        }
+/* ─── LANDING / ROLE SELECT ─── */
+#screen-landing{flex-direction:column;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.landing-bg{position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(79,142,247,.18) 0%,transparent 70%),radial-gradient(ellipse 60% 40% at 80% 80%,rgba(124,92,252,.13) 0%,transparent 70%);pointer-events:none}
+.landing-logo{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.logo-mark{width:48px;height:48px;border-radius:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;box-shadow:0 4px 24px rgba(79,142,247,.4)}
+.logo-mark svg{width:26px;height:26px;fill:white}
+.logo-text{font-size:2rem;font-weight:800;letter-spacing:-.5px;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.landing-tagline{color:var(--text-secondary);font-size:1.08rem;margin-bottom:48px;text-align:center;max-width:420px;line-height:1.6}
+.role-cards{display:flex;gap:24px;flex-wrap:wrap;justify-content:center}
+.role-card{background:var(--bg-card);border:1.5px solid var(--border);border-radius:var(--radius);padding:36px 32px;min-width:220px;max-width:260px;cursor:pointer;transition:var(--transition);backdrop-filter:blur(18px);text-align:center;position:relative;overflow:hidden}
+.role-card::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,var(--accent-glow),transparent);opacity:0;transition:.3s}
+.role-card:hover{border-color:var(--accent);transform:translateY(-4px);box-shadow:0 16px 48px rgba(79,142,247,.2)}
+.role-card:hover::before{opacity:1}
+.role-card-icon{width:56px;height:56px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 18px;font-size:1.6rem}
+.role-card h3{font-size:1.15rem;font-weight:700;margin-bottom:8px}
+.role-card p{font-size:.85rem;color:var(--text-secondary);line-height:1.5}
+.badge{display:inline-block;font-size:.72rem;font-weight:600;padding:2px 10px;border-radius:20px;margin-top:12px;letter-spacing:.5px}
+.badge-desktop{background:rgba(79,142,247,.18);color:var(--accent)}
+.badge-mobile{background:rgba(34,211,165,.18);color:var(--accent3)}
 
-        // Text cleaning engine
-        function cleanText(text) {
-            if (!text) return '';
-            let cleaned = text.replace(/\b(um|uh|hmm|mhm|like|you know|sort of|kind of)\b/gi, '').replace(/\s+/g, ' ').trim();
-            if (cleaned.length === 0) return '';
-            cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-            if (!/[.!?]$/.test(cleaned)) cleaned += '.';
-            return cleaned;
-        }
+/* ─── JOIN MOBILE SCREEN ─── */
+#screen-join{flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+.join-card{background:var(--bg-card);border:1.5px solid var(--border);border-radius:24px;padding:40px 32px;width:100%;max-width:380px;backdrop-filter:blur(20px);box-shadow:var(--shadow);animation:slideInRight .38s ease}
+.join-back{display:flex;align-items:center;gap:8px;color:var(--text-secondary);cursor:pointer;font-size:.9rem;margin-bottom:28px;width:fit-content;transition:var(--transition)}
+.join-back:hover{color:var(--accent)}
+.join-title{font-size:1.6rem;font-weight:800;margin-bottom:6px}
+.join-sub{color:var(--text-secondary);font-size:.9rem;margin-bottom:30px}
+.field-group{margin-bottom:20px}
+.field-label{font-size:.8rem;font-weight:600;color:var(--text-secondary);margin-bottom:8px;letter-spacing:.5px;text-transform:uppercase}
+.field-input{width:100%;background:rgba(255,255,255,.05);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:13px 16px;color:var(--text-primary);font-size:1rem;font-family:inherit;outline:none;transition:var(--transition)}
+.field-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+.field-input::placeholder{color:var(--text-muted)}
+.code-input{font-size:2rem;font-weight:700;letter-spacing:12px;text-align:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px 24px;border-radius:var(--radius-sm);font-size:.95rem;font-weight:600;cursor:pointer;border:none;transition:var(--transition);font-family:inherit}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;box-shadow:0 4px 20px rgba(79,142,247,.35)}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(79,142,247,.5)}
+.btn-primary:active{transform:translateY(0)}
+.btn-ghost{background:rgba(255,255,255,.06);color:var(--text-primary);border:1.5px solid var(--border)}
+.btn-ghost:hover{background:rgba(255,255,255,.1)}
+.btn-danger{background:rgba(242,92,92,.15);color:var(--danger);border:1.5px solid rgba(242,92,92,.3)}
+.btn-danger:hover{background:rgba(242,92,92,.25)}
+.btn-sm{padding:8px 14px;font-size:.82rem;border-radius:8px}
+.btn-xs{padding:5px 10px;font-size:.75rem;border-radius:6px}
+.btn-full{width:100%}
+.btn-accent3{background:linear-gradient(135deg,var(--accent3),#1ab88a);color:#fff}
+.btn-disabled{opacity:.4;pointer-events:none}
 
-        // --- Host Logic (PC Receiver) ---
-        function startHost() {
-            state.role = 'host';
-            state.roomCode = generateCode();
-            
-            showView('view-host');
-            $('host-room-code').textContent = state.roomCode;
-            $('host-room-code').dataset.full = state.roomCode.split('').join(' '); 
-            
-            state.startTime = Date.now();
-            state.timerInterval = setInterval(() => {
-                $('session-timer').textContent = formatTime((Date.now() - state.startTime) / 1000);
-            }, 1000);
+/* ─── MOBILE MIC SCREEN ─── */
+#screen-mobile{flex-direction:column;min-height:100vh;background:var(--bg-deep)}
+.mob-header{display:flex;align-items:center;justify-content:space-between;padding:20px 20px 0;animation:fadeIn .3s ease}
+.mob-session-info{display:flex;flex-direction:column}
+.mob-session-code{font-size:.75rem;color:var(--text-muted);font-weight:500;letter-spacing:.5px}
+.mob-session-val{font-size:1rem;font-weight:700;color:var(--accent)}
+.mob-indicators{display:flex;align-items:center;gap:12px}
+.quality-dot{width:8px;height:8px;border-radius:50%;background:var(--accent3);box-shadow:0 0 6px var(--accent3);animation:pulse 2s infinite}
+.battery-pill{display:flex;align-items:center;gap:5px;font-size:.78rem;color:var(--text-secondary);background:var(--bg-card);border:1px solid var(--border2);padding:4px 10px;border-radius:20px}
+.mob-main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:28px}
+.mob-nick{font-size:1rem;font-weight:500;color:var(--text-secondary);letter-spacing:.3px}
+.mob-nick span{color:var(--text-primary);font-weight:700}
+.mic-btn-wrap{position:relative;display:flex;align-items:center;justify-content:center}
+.mic-ripple{position:absolute;width:160px;height:160px;border-radius:50%;border:2px solid var(--accent);animation:ripple 1.8s linear infinite;opacity:0}
+.mic-ripple:nth-child(2){animation-delay:.6s}
+.mic-ripple:nth-child(3){animation-delay:1.2s}
+.mic-btn{width:130px;height:130px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 40px rgba(79,142,247,.5);transition:var(--transition);position:relative;z-index:2}
+.mic-btn:hover{transform:scale(1.05)}
+.mic-btn:active{transform:scale(.96)}
+.mic-btn.muted{background:linear-gradient(135deg,#f25c5c,#c94040)}
+.mic-btn svg{width:52px;height:52px;fill:white}
+.mic-status-text{font-size:1.1rem;font-weight:600;color:var(--text-primary);text-align:center}
+.mic-status-sub{font-size:.85rem;color:var(--text-secondary);text-align:center}
+.waveform-mini{display:flex;align-items:center;gap:3px;height:32px}
+.wave-bar-mini{width:3px;border-radius:2px;background:var(--accent);animation:waveBar .8s ease infinite}
+.wave-bar-mini:nth-child(1){animation-delay:0s}
+.wave-bar-mini:nth-child(2){animation-delay:.1s}
+.wave-bar-mini:nth-child(3){animation-delay:.2s}
+.wave-bar-mini:nth-child(4){animation-delay:.3s}
+.wave-bar-mini:nth-child(5){animation-delay:.4s}
+.wave-bar-mini:nth-child(6){animation-delay:.5s}
+.wave-bar-mini:nth-child(7){animation-delay:.6s}
+.wave-bar-mini.muted{animation:none;height:4px!important;opacity:.3}
+.mob-bottom{padding:20px 24px 32px;display:flex;flex-direction:column;gap:12px}
+.quality-bar-wrap{display:flex;align-items:center;gap:10px;font-size:.8rem;color:var(--text-secondary)}
+.quality-bar{flex:1;height:4px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden}
+.quality-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--accent3),var(--accent));transition:width .5s ease;width:80%}
+.conn-duration{font-size:.8rem;color:var(--text-muted);text-align:center}
 
-            // Initialize PeerJS Host
-            const peerId = `voicebridge-${state.roomCode}`;
-            state.peerInstance = new Peer(peerId);
+/* ─── DESKTOP WORKSPACE ─── */
+#screen-desktop{flex-direction:row;min-height:100vh;overflow:hidden}
+.sidebar{width:280px;min-width:220px;max-width:320px;background:var(--bg-card);border-right:1.5px solid var(--border2);display:flex;flex-direction:column;overflow:hidden;transition:width .3s ease;backdrop-filter:blur(20px)}
+.sidebar.collapsed{width:60px}
+.sidebar-header{padding:20px 18px 12px;border-bottom:1px solid var(--border2);display:flex;align-items:center;gap:10px;min-height:68px}
+.sidebar-logo{display:flex;align-items:center;gap:10px;flex:1;min-width:0;overflow:hidden}
+.sidebar-logo-mark{width:34px;height:34px;min-width:34px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center}
+.sidebar-logo-mark svg{width:18px;height:18px;fill:white}
+.sidebar-logo-text{font-size:1.05rem;font-weight:800;white-space:nowrap;overflow:hidden;transition:.3s}
+.sidebar.collapsed .sidebar-logo-text{width:0;opacity:0}
+.sidebar-toggle{width:30px;height:30px;border:none;background:rgba(255,255,255,.06);border-radius:8px;cursor:pointer;color:var(--text-secondary);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:var(--transition)}
+.sidebar-toggle:hover{background:rgba(79,142,247,.15);color:var(--accent)}
+.sidebar-section{padding:14px 12px 6px;border-bottom:1px solid var(--border2)}
+.sidebar-section-label{font-size:.7rem;font-weight:700;color:var(--text-muted);letter-spacing:.8px;text-transform:uppercase;padding:0 6px;margin-bottom:8px;white-space:nowrap;overflow:hidden;transition:.3s}
+.sidebar.collapsed .sidebar-section-label{opacity:0}
+.session-code-display{background:rgba(79,142,247,.1);border:1.5px solid rgba(79,142,247,.25);border-radius:10px;padding:12px;text-align:center;cursor:pointer;transition:var(--transition);overflow:hidden}
+.session-code-display:hover{background:rgba(79,142,247,.18)}
+.session-code-label{font-size:.7rem;color:var(--text-secondary);font-weight:600;letter-spacing:.5px;text-transform:uppercase}
+.session-code-val{font-size:1.8rem;font-weight:800;color:var(--accent);letter-spacing:8px;line-height:1.2;font-feature-settings:'tnum'}
+.session-code-hint{font-size:.68rem;color:var(--text-muted);margin-top:2px}
+.sidebar-nav{display:flex;flex-direction:column;gap:2px;padding:8px 10px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--radius-sm);cursor:pointer;transition:var(--transition);color:var(--text-secondary);font-size:.88rem;font-weight:500;white-space:nowrap;overflow:hidden}
+.nav-item:hover{background:rgba(255,255,255,.06);color:var(--text-primary)}
+.nav-item.active{background:rgba(79,142,247,.15);color:var(--accent)}
+.nav-item svg{width:18px;height:18px;flex-shrink:0}
+.nav-item-label{transition:.3s;overflow:hidden}
+.sidebar.collapsed .nav-item-label{width:0;opacity:0}
+.nav-badge{margin-left:auto;background:var(--accent);color:#fff;font-size:.68rem;font-weight:700;padding:1px 7px;border-radius:10px;flex-shrink:0}
+.sidebar.collapsed .nav-badge{display:none}
+.sidebar-footer{margin-top:auto;padding:12px;border-top:1px solid var(--border2);display:flex;flex-direction:column;gap:8px}
+.sidebar-stat{display:flex;align-items:center;gap:8px;font-size:.78rem;color:var(--text-secondary);overflow:hidden}
+.sidebar-stat svg{width:14px;height:14px;flex-shrink:0;color:var(--accent3)}
+.sidebar.collapsed .sidebar-stat span{display:none}
+.theme-toggle{display:flex;align-items:center;justify-content:center;gap:8px;background:rgba(255,255,255,.05);border:1px solid var(--border2);border-radius:8px;padding:7px;cursor:pointer;color:var(--text-secondary);font-size:.8rem;transition:var(--transition)}
+.theme-toggle:hover{color:var(--accent)}
 
-            state.peerInstance.on('open', (id) => {
-                console.log('Host ready. ID:', id);
-            });
+/* ─── MAIN AREA ─── */
+.main-area{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.topbar{display:flex;align-items:center;gap:12px;padding:14px 24px;border-bottom:1px solid var(--border2);background:var(--bg-card);backdrop-filter:blur(20px);flex-shrink:0;min-height:64px}
+.topbar-title{font-size:1rem;font-weight:700;flex:1;min-width:0}
+.topbar-status{display:flex;align-items:center;gap:8px;font-size:.82rem;color:var(--text-secondary)}
+.status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.status-dot.listening{background:var(--accent3);box-shadow:0 0 8px var(--accent3);animation:pulse 1.5s infinite}
+.status-dot.idle{background:var(--text-muted)}
+.status-dot.error{background:var(--danger)}
+.topbar-actions{display:flex;align-items:center;gap:8px}
+.content-area{flex:1;overflow:hidden;display:flex;flex-direction:column}
 
-            // Handle incoming text connections
-            state.peerInstance.on('connection', (conn) => {
-                const guestId = conn.peer;
-                if (!state.peers[guestId]) {
-                    state.peers[guestId] = { nickname: conn.metadata?.nickname || 'Unknown Mic', muted: false, transcribe: true };
-                }
-                state.peers[guestId].conn = conn;
+/* ─── VIEWS ─── */
+.view{display:none;flex:1;overflow:hidden;flex-direction:column}
+.view.active{display:flex;animation:fadeIn .25s ease}
 
-                conn.on('data', (data) => handleIncomingText(guestId, data));
-                conn.on('close', () => removeGuest(guestId));
-                
-                showNotification(`${state.peers[guestId].nickname} connected via text channel.`);
-                renderMicList();
-            });
+/* ─── TRANSCRIPT VIEW ─── */
+#view-transcript{flex-direction:column}
+.transcript-toolbar{display:flex;align-items:center;gap:8px;padding:10px 20px;border-bottom:1px solid var(--border2);background:var(--bg-card2);flex-wrap:wrap;flex-shrink:0}
+.toolbar-group{display:flex;align-items:center;gap:4px}
+.toolbar-sep{width:1px;height:22px;background:var(--border2);margin:0 4px}
+.tool-btn{display:flex;align-items:center;justify-content:center;gap:5px;padding:6px 10px;border-radius:7px;border:none;background:transparent;color:var(--text-secondary);cursor:pointer;font-size:.8rem;font-weight:500;transition:var(--transition);white-space:nowrap;font-family:inherit}
+.tool-btn svg{width:15px;height:15px;flex-shrink:0}
+.tool-btn:hover{background:rgba(255,255,255,.08);color:var(--text-primary)}
+.tool-btn.active{background:rgba(79,142,247,.18);color:var(--accent)}
+.search-bar{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:5px 12px;margin-left:auto}
+.search-bar input{background:none;border:none;outline:none;color:var(--text-primary);font-size:.82rem;width:160px;font-family:inherit}
+.search-bar input::placeholder{color:var(--text-muted)}
+.search-bar svg{width:14px;height:14px;color:var(--text-muted);flex-shrink:0}
+.transcript-pane{flex:1;overflow-y:auto;padding:28px 32px;position:relative;scroll-behavior:smooth}
+.transcript-pane::-webkit-scrollbar{width:4px}
+.transcript-pane::-webkit-scrollbar-track{background:transparent}
+.transcript-pane::-webkit-scrollbar-thumb{background:var(--text-muted);border-radius:2px}
+.transcript-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;color:var(--text-muted);text-align:center}
+.transcript-empty svg{width:48px;height:48px;opacity:.3}
+.transcript-empty h3{font-size:1.1rem;font-weight:600;color:var(--text-secondary)}
+.transcript-empty p{font-size:.85rem;max-width:300px;line-height:1.6}
+.transcript-content{min-height:100%;outline:none;line-height:1.9;font-size:1.02rem;color:var(--text-primary);white-space:pre-wrap;word-break:break-word}
+.transcript-content .speaker-label{font-size:.78rem;font-weight:700;color:var(--accent);letter-spacing:.5px;text-transform:uppercase;display:block;margin-top:20px;margin-bottom:4px}
+.transcript-content .ts-label{font-size:.72rem;color:var(--text-muted);font-family:monospace;margin-right:8px}
+.transcript-content .highlight{background:rgba(245,166,35,.22);border-radius:3px;padding:0 2px}
+.interim-text{color:var(--text-muted);font-style:italic}
+.cursor-blink{display:inline-block;width:2px;height:1.1em;background:var(--accent);margin-left:1px;vertical-align:middle;animation:blink 1s step-end infinite;border-radius:1px}
 
-            // Handle incoming audio calls
-            state.peerInstance.on('call', (call) => {
-                const guestId = call.peer;
-                if (!state.peers[guestId]) {
-                    state.peers[guestId] = { nickname: call.metadata?.nickname || 'Unknown Mic', muted: false, transcribe: true };
-                }
-                state.peers[guestId].call = call;
+/* ─── ANALYTICS VIEW ─── */
+#view-analytics{flex-direction:column;overflow-y:auto;padding:24px}
+.analytics-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px}
+.analytics-card{background:var(--bg-card);border:1px solid var(--border2);border-radius:var(--radius);padding:20px;transition:var(--transition);animation:fadeIn .3s ease}
+.analytics-card:hover{border-color:var(--border);transform:translateY(-2px)}
+.analytics-card-label{font-size:.72rem;font-weight:700;color:var(--text-muted);letter-spacing:.6px;text-transform:uppercase;margin-bottom:8px}
+.analytics-card-value{font-size:2rem;font-weight:800;line-height:1;margin-bottom:4px}
+.analytics-card-sub{font-size:.78rem;color:var(--text-secondary)}
+.analytics-card.accent-blue .analytics-card-value{color:var(--accent)}
+.analytics-card.accent-purple .analytics-card-value{color:var(--accent2)}
+.analytics-card.accent-green .analytics-card-value{color:var(--accent3)}
+.analytics-card.accent-warn .analytics-card-value{color:var(--warn)}
+.wpm-chart{height:80px;margin-top:12px;position:relative}
+.wpm-bars{display:flex;align-items:flex-end;gap:3px;height:100%}
+.wpm-bar{flex:1;border-radius:3px 3px 0 0;background:linear-gradient(to top,var(--accent2),var(--accent));transition:height .5s ease;min-height:4px}
+.section-title{font-size:.85rem;font-weight:700;color:var(--text-secondary);letter-spacing:.5px;text-transform:uppercase;margin:24px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--border2)}
 
-                call.answer(); // Answer without sending a stream (Receiver only)
-                
-                call.on('stream', (remoteStream) => {
-                    setupAudioReceiver(guestId, remoteStream);
-                    updateMicStatusUI(guestId, 'connected');
-                    renderMicList();
-                    showNotification(`${state.peers[guestId].nickname} audio stream active.`);
-                });
+/* ─── DEVICES VIEW ─── */
+#view-devices{flex-direction:column;overflow-y:auto;padding:24px}
+.devices-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.devices-count{font-size:.85rem;color:var(--text-secondary)}
+.device-cards{display:flex;flex-direction:column;gap:12px}
+.device-card{background:var(--bg-card);border:1.5px solid var(--border2);border-radius:var(--radius);padding:18px 20px;display:flex;align-items:center;gap:16px;transition:var(--transition);animation:slideInLeft .3s ease}
+.device-card:hover{border-color:var(--border)}
+.device-card.speaking{border-color:var(--accent3);box-shadow:0 0 20px rgba(34,211,165,.12)}
+.device-card.priority{border-color:var(--accent)}
+.device-avatar{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0;position:relative}
+.device-avatar-ring{position:absolute;inset:-3px;border-radius:15px;border:2px solid transparent;transition:.3s}
+.device-card.speaking .device-avatar-ring{border-color:var(--accent3);animation:glow 1.5s ease infinite}
+.device-info{flex:1;min-width:0}
+.device-name{font-size:.95rem;font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.device-meta{display:flex;align-items:center;gap:10px;font-size:.78rem;color:var(--text-secondary);flex-wrap:wrap}
+.device-meta-item{display:flex;align-items:center;gap:4px}
+.device-meta-item svg{width:11px;height:11px}
+.signal-bars{display:flex;align-items:flex-end;gap:2px;height:14px}
+.signal-bar{width:3px;border-radius:1px;background:var(--text-muted)}
+.signal-bar.active{background:var(--accent3)}
+.device-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.speaking-badge{font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(34,211,165,.15);color:var(--accent3);animation:pulse 1.5s infinite}
+.priority-badge{font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(79,142,247,.15);color:var(--accent)}
+.no-devices{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;color:var(--text-muted);text-align:center;gap:12px}
+.no-devices svg{width:40px;height:40px;opacity:.3}
 
-                call.on('close', () => removeGuest(guestId));
-            });
+/* ─── WAVEFORM & AUDIO METER ─── */
+.waveform-container{position:relative;height:56px;overflow:hidden;flex-shrink:0;background:rgba(0,0,0,.15);border-bottom:1px solid var(--border2)}
+.waveform-canvas{width:100%;height:100%;display:block}
+.audio-meter{position:absolute;right:12px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.meter-bar{height:4px;border-radius:2px;background:var(--accent3);transition:width .1s ease}
 
-            state.peerInstance.on('error', (err) => {
-                console.error("Host Peer Error:", err);
-                showNotification(`Network Error: ${err.type}`, "error");
-            });
+/* ─── LIVE INDICATOR ─── */
+.live-indicator{display:flex;align-items:center;gap:6px;font-size:.75rem;font-weight:700;color:var(--danger);text-transform:uppercase;letter-spacing:.8px}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--danger);animation:ping 1s cubic-bezier(0,0,.2,1) infinite}
+.live-dot-bg{position:relative;width:7px;height:7px}
+.live-dot-bg::before{content:'';position:absolute;inset:0;border-radius:50%;background:var(--danger);opacity:.4;animation:ping 1s cubic-bezier(0,0,.2,1) infinite}
 
-            drawMasterWaveform();
-        }
+/* ─── SETTINGS PANEL / OVERLAY ─── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);z-index:100;display:none;align-items:center;justify-content:center;animation:fadeIn .2s ease}
+.overlay.open{display:flex}
+.panel{background:var(--bg-card);border:1.5px solid var(--border);border-radius:24px;padding:32px;max-width:480px;width:calc(100% - 32px);max-height:80vh;overflow-y:auto;box-shadow:var(--shadow);animation:fadeIn .25s ease}
+.panel::-webkit-scrollbar{width:4px}
+.panel::-webkit-scrollbar-thumb{background:var(--text-muted);border-radius:2px}
+.panel-title{font-size:1.2rem;font-weight:800;margin-bottom:4px}
+.panel-sub{font-size:.85rem;color:var(--text-secondary);margin-bottom:24px}
+.panel-close{position:absolute;top:18px;right:18px;background:rgba(255,255,255,.07);border:none;border-radius:8px;width:30px;height:30px;cursor:pointer;color:var(--text-secondary);display:flex;align-items:center;justify-content:center;transition:var(--transition)}
+.panel-close:hover{background:rgba(242,92,92,.15);color:var(--danger)}
+.setting-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border2)}
+.setting-row:last-child{border-bottom:none}
+.setting-label{font-size:.9rem;font-weight:500}
+.setting-sub{font-size:.78rem;color:var(--text-secondary);margin-top:2px}
+.toggle{position:relative;width:40px;height:22px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0;position:absolute}
+.toggle-track{position:absolute;inset:0;background:var(--text-muted);border-radius:11px;cursor:pointer;transition:.3s}
+.toggle input:checked+.toggle-track{background:var(--accent)}
+.toggle-thumb{position:absolute;width:16px;height:16px;top:3px;left:3px;background:#fff;border-radius:50%;transition:.3s;pointer-events:none}
+.toggle input:checked~.toggle-thumb{left:21px}
 
-        function setupAudioReceiver(guestId, stream) {
-            const peer = state.peers[guestId];
-            peer.stream = stream;
-            
-            const audioEl = document.createElement('audio');
-            audioEl.srcObject = stream;
-            audioEl.autoplay = true;
-            peer.audioEl = audioEl;
+/* ─── TOAST ─── */
+#toast-container{position:fixed;bottom:24px;right:24px;z-index:999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{display:flex;align-items:center;gap:10px;padding:12px 18px;background:var(--bg-card);border:1.5px solid var(--border);border-radius:12px;backdrop-filter:blur(20px);box-shadow:var(--shadow);font-size:.85rem;font-weight:500;animation:slideInRight .3s ease;min-width:200px;pointer-events:all}
+.toast svg{width:16px;height:16px;flex-shrink:0}
+.toast.success{border-color:rgba(34,211,165,.3);color:var(--accent3)}
+.toast.error{border-color:rgba(242,92,92,.3);color:var(--danger)}
+.toast.info{border-color:var(--border);color:var(--text-primary)}
+.toast.warn{border-color:rgba(245,166,35,.3);color:var(--warn)}
 
-            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const source = audioCtx.createMediaStreamSource(stream);
-            const analyser = audioCtx.createAnalyser();
-            analyser.fftSize = 256;
-            source.connect(analyser);
-            
-            peer.analyser = analyser;
-            peer.dataArray = new Uint8Array(analyser.frequencyBinCount);
-        }
+/* ─── FOCUS MODE ─── */
+body.focus-mode .sidebar{display:none}
+body.focus-mode .topbar{display:none}
+body.focus-mode .transcript-toolbar{display:none}
+body.focus-mode .waveform-container{display:none}
+body.focus-mode .transcript-pane{padding:60px}
+.focus-exit{position:fixed;bottom:32px;right:32px;z-index:50;opacity:.5;transition:opacity .3s}
+.focus-exit:hover{opacity:1}
 
-        function handleIncomingText(guestId, messageStr) {
-            const peer = state.peers[guestId];
-            if (!peer || !peer.transcribe) return;
+/* ─── RESPONSIVE ─── */
+@media(max-width:768px){
+  #screen-desktop{flex-direction:column}
+  .sidebar{width:100%!important;max-width:100%;flex-direction:row;min-height:auto;border-right:none;border-bottom:1.5px solid var(--border2)}
+  .sidebar-header,.sidebar-section,.sidebar-footer{display:none}
+  .sidebar-nav{flex-direction:row;flex-wrap:nowrap;overflow-x:auto;padding:8px;gap:4px}
+  .nav-item{flex-direction:column;font-size:.65rem;gap:4px;padding:8px 12px;min-width:56px;align-items:center}
+  .nav-item-label{width:auto!important;opacity:1!important;font-size:.65rem}
+  .main-area{min-height:0}
+  .transcript-pane{padding:16px}
+  .analytics-grid{grid-template-columns:repeat(2,1fr)}
+}
 
-            try {
-                const msg = JSON.parse(messageStr);
-                
-                if (msg.type === 'interim') {
-                    const micCard = $(`mic-${guestId}`);
-                    if(micCard) micCard.classList.add('border-primary', 'bg-primary/10');
-                    setTimeout(() => {
-                        if(micCard) micCard.classList.remove('border-primary', 'bg-primary/10');
-                    }, 500);
-                    
-                    state.transcriptState.interim = msg.text;
-                    updateTranscriptUI();
-                } else if (msg.type === 'final') {
-                    const cleaned = cleanText(msg.text);
-                    if (cleaned) {
-                        const now = Date.now();
-                        const prefix = (now - state.transcriptState.lastInputTime > 3000 && state.transcriptState.fullText.length > 0) ? '\n\n' : ' ';
-                        const speakerTag = Object.keys(state.peers).length > 1 ? `[${peer.nickname}] ` : '';
-                        
-                        state.transcriptState.fullText += `${prefix}${speakerTag}${cleaned}`;
-                        state.transcriptState.lastInputTime = now;
-                        state.transcriptState.interim = '';
-                        updateTranscriptUI();
-                        updateStats();
-                    }
-                }
-            } catch(e) { console.error("Message parse error", e); }
-        }
-
-        function renderMicList() {
-            const container = $('mic-list');
-            container.innerHTML = '';
-            
-            Object.entries(state.peers).forEach(([uid, peer]) => {
-                const div = document.createElement('div');
-                div.id = `mic-${uid}`;
-                div.className = 'bg-glass border border-glassBorder rounded-xl p-4 flex flex-col gap-3 transition-all';
-                
-                div.innerHTML = `
-                    <div class="flex justify-between items-center">
-                        <div class="flex items-center gap-2">
-                            <i data-lucide="mic" class="w-4 h-4 text-gray-400" id="icon-${uid}"></i>
-                            <span class="font-medium text-sm">${peer.nickname}</span>
-                        </div>
-                        <span class="text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400" id="status-${uid}">Live</span>
-                    </div>
-                    
-                    <canvas id="canvas-${uid}" class="w-full h-12 bg-black/20 rounded-lg"></canvas>
-                    
-                    <div class="flex gap-2 mt-2">
-                        <button onclick="toggleMute('${uid}')" class="flex-1 bg-white/5 hover:bg-white/10 p-2 rounded-lg text-xs flex items-center justify-center gap-2 transition-colors">
-                            <i data-lucide="${peer.muted ? 'volume-x' : 'volume-2'}" class="w-3 h-3"></i> ${peer.muted ? 'Unmute' : 'Mute'}
-                        </button>
-                        <button onclick="toggleTranscribe('${uid}')" class="flex-1 ${peer.transcribe ? 'bg-primary/20 text-primary' : 'bg-white/5'} hover:bg-white/10 p-2 rounded-lg text-xs flex items-center justify-center gap-2 transition-colors">
-                            <i data-lucide="file-text" class="w-3 h-3"></i> T-Script
-                        </button>
-                        <button onclick="removeGuest('${uid}')" class="bg-red-500/20 hover:bg-red-500/30 text-red-400 p-2 rounded-lg transition-colors">
-                            <i data-lucide="power" class="w-3 h-3"></i>
-                        </button>
-                    </div>
-                `;
-                container.appendChild(div);
-                
-                const canvas = $(`canvas-${uid}`);
-                if (canvas && peer.analyser) {
-                    const ctx = canvas.getContext('2d');
-                    const draw = () => {
-                        if (!state.peers[uid]) return;
-                        requestAnimationFrame(draw);
-                        peer.analyser.getByteFrequencyData(peer.dataArray);
-                        ctx.clearRect(0, 0, canvas.width, canvas.height);
-                        ctx.fillStyle = 'rgba(59, 130, 246, 0.8)';
-                        const barWidth = (canvas.width / peer.dataArray.length) * 2.5;
-                        let x = 0;
-                        for(let i = 0; i < peer.dataArray.length; i++) {
-                            const barHeight = (peer.dataArray[i] / 255) * canvas.height;
-                            ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
-                            x += barWidth + 1;
-                        }
-                    };
-                    draw();
-                }
-            });
-            lucide.createIcons();
-            
-            if(Object.keys(state.peers).length === 0) {
-                container.innerHTML = `<div class="text-center text-gray-500 text-sm py-8 border border-dashed border-gray-700 rounded-xl">Waiting for microphones...</div>`;
-            }
-        }
-
-        window.toggleMute = (uid) => {
-            const peer = state.peers[uid];
-            if(peer && peer.audioEl) {
-                peer.muted = !peer.muted;
-                peer.audioEl.muted = peer.muted;
-                renderMicList();
-            }
-        };
-
-        window.toggleTranscribe = (uid) => {
-            if(state.peers[uid]) {
-                state.peers[uid].transcribe = !state.peers[uid].transcribe;
-                renderMicList();
-            }
-        };
-
-        window.removeGuest = (uid) => {
-            if (state.peers[uid]) {
-                if(state.peers[uid].conn) state.peers[uid].conn.close();
-                if(state.peers[uid].call) state.peers[uid].call.close();
-                if(state.peers[uid].audioEl) state.peers[uid].audioEl.remove();
-                delete state.peers[uid];
-                renderMicList();
-            }
-        };
-
-        function updateMicStatusUI(uid, status) {
-            const el = $(`status-${uid}`);
-            if(!el) return;
-            if(status === 'connected') {
-                el.className = 'text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400';
-                el.textContent = 'Live';
-            } else {
-                el.className = 'text-xs px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-400';
-                el.textContent = 'Disconnected';
-            }
-        }
-
-        // --- Guest Logic (Mobile Mic) ---
-        async function joinAsGuest() {
-            const code = $('join-code').value.trim();
-            const nickname = $('join-nickname').value.trim();
-            
-            if(code.length !== 5) return showNotification("Enter a valid 5-digit code", "error");
-            if(!nickname) return showNotification("Please enter a nickname", "error");
-
-            $('btn-join').disabled = true;
-            $('btn-join').innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Connecting...';
-            lucide.createIcons();
-
-            try {
-                // Get Microphone first
-                state.localStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-            } catch (error) {
-                console.error(error);
-                showNotification("Microphone access denied or unavailable.", "error");
-                $('btn-join').disabled = false;
-                $('btn-join').innerHTML = 'Connect Microphone';
-                return;
-            }
-
-            state.role = 'guest';
-            state.roomCode = code;
-            state.nickname = nickname;
-
-            // Initialize PeerJS Guest
-            state.peerInstance = new Peer();
-
-            state.peerInstance.on('open', (id) => {
-                const hostId = `voicebridge-${code}`;
-
-                // Connect to Host
-                state.conn = state.peerInstance.connect(hostId, { metadata: { nickname: state.nickname } });
-                state.call = state.peerInstance.call(hostId, state.localStream, { metadata: { nickname: state.nickname } });
-
-                state.conn.on('open', () => {
-                    const statusEl = $('mobile-status');
-                    statusEl.textContent = 'Connected & Live';
-                    statusEl.className = 'text-emerald-400 text-sm font-medium flex items-center justify-center gap-2';
-                    
-                    setupSpeechRecognition();
-                    showGuestActiveView();
-                });
-
-                state.conn.on('close', () => {
-                    showNotification("Host ended the session.", "error");
-                    stopGuest();
-                });
-
-                state.call.on('error', (err) => {
-                    showNotification("Audio call failed.", "error");
-                    stopGuest();
-                });
-            });
-
-            state.peerInstance.on('error', (err) => {
-                console.error("Guest Peer Error:", err);
-                showNotification(`Connection failed. Check code.`, "error");
-                stopGuest();
-            });
-        }
-
-        function setupSpeechRecognition() {
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SpeechRecognition) {
-                showNotification("Speech recognition not supported on this browser.", "error");
-                return;
-            }
-
-            const recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = true;
-            recognition.lang = document.documentElement.lang || 'en-US';
-
-            recognition.onstart = () => {
-                state.isRecording = true;
-                $('mobile-mic-btn').classList.add('bg-red-500', 'shadow-[0_0_30px_rgba(239,68,68,0.5)]');
-                $('mobile-mic-btn').classList.remove('bg-gray-700');
-                $('mobile-mic-icon').classList.add('animate-pulse-fast');
-            };
-
-            recognition.onresult = (event) => {
-                let interimTranscript = '';
-                let finalTranscript = '';
-
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript;
-                    } else {
-                        interimTranscript += event.results[i][0].transcript;
-                    }
-                }
-
-                if (state.conn && state.conn.open) {
-                    if (finalTranscript) {
-                        state.conn.send(JSON.stringify({ type: 'final', text: finalTranscript }));
-                    }
-                    if (interimTranscript) {
-                        state.conn.send(JSON.stringify({ type: 'interim', text: interimTranscript }));
-                    }
-                }
-                
-                $('mobile-transcript').textContent = interimTranscript || "Listening...";
-            };
-
-            recognition.onerror = (event) => {
-                console.error("Speech recognition error", event.error);
-                if(event.error === 'not-allowed') stopGuest();
-            };
-
-            recognition.onend = () => {
-                if(state.role === 'guest' && state.conn && state.conn.open) {
-                    try { recognition.start(); } catch(e){}
-                }
-            };
-
-            try {
-                recognition.start();
-                state.recognition = recognition;
-            } catch(e){ console.error(e); }
-        }
-
-        window.toggleMobileMic = () => {
-            if(state.isRecording && state.recognition) {
-                state.recognition.stop();
-                state.isRecording = false;
-                $('mobile-mic-btn').classList.remove('bg-red-500', 'shadow-[0_0_30px_rgba(239,68,68,0.5)]');
-                $('mobile-mic-btn').classList.add('bg-gray-700');
-                $('mobile-mic-icon').classList.remove('animate-pulse-fast');
-                $('mobile-transcript').textContent = "Microphone Paused";
-            } else if (!state.isRecording && state.recognition) {
-                try { state.recognition.start(); } catch(e){}
-            }
-        };
-
-        function showGuestActiveView() {
-            showView('view-guest-active');
-            $('active-room-code').textContent = state.roomCode;
-            $('active-nickname').textContent = state.nickname;
-        }
-
-        window.stopGuest = () => {
-            if(state.recognition) { state.recognition.stop(); state.recognition = null; }
-            if(state.localStream) { state.localStream.getTracks().forEach(t => t.stop()); state.localStream = null; }
-            if(state.conn) { state.conn.close(); state.conn = null; }
-            if(state.call) { state.call.close(); state.call = null; }
-            if(state.peerInstance) { state.peerInstance.destroy(); state.peerInstance = null; }
-            state.role = null;
-            showView('view-home');
-            $('btn-join').disabled = false;
-            $('btn-join').innerHTML = 'Connect Microphone';
-        };
-
-        // --- UI & Text Management (Host) ---
-        function updateTranscriptUI() {
-            const output = $('transcript-output');
-            let html = state.transcriptState.fullText
-                .replace(/\n\n/g, '</p><p class="mt-4">')
-                .replace(/\[(.*?)\]/g, '<span class="text-xs font-semibold text-primary/80 uppercase tracking-wider">[$1]</span>');
-                
-            if (html.startsWith(' ')) html = html.substring(1);
-            html = `<p>${html}</p>`;
-            
-            if (state.transcriptState.interim) {
-                html += `<p class="mt-2 text-gray-400 italic">${state.transcriptState.interim}</p>`;
-            }
-            
-            output.innerHTML = html;
-            
-            const container = $('transcript-container');
-            container.scrollTop = container.scrollHeight;
-        }
-
-        function updateStats() {
-            const text = state.transcriptState.fullText;
-            const words = text.trim().split(/\s+/).filter(w => w.length > 0).length;
-            $('word-count').textContent = words;
-            $('char-count').textContent = text.length;
-        }
-
-        window.copyText = () => {
-            navigator.clipboard.writeText(state.transcriptState.fullText).then(() => {
-                showNotification("Text copied to clipboard");
-            });
-        };
-
-        window.clearText = () => {
-            state.transcriptState.fullText = '';
-            state.transcriptState.interim = '';
-            updateTranscriptUI();
-            updateStats();
-        };
-
-        window.downloadTxt = () => {
-            const blob = new Blob([state.transcriptState.fullText], { type: 'text/plain' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `VoiceBridge_Transcript_${new Date().toISOString().slice(0,10)}.txt`;
-            a.click();
-            window.URL.revokeObjectURL(url);
-        };
-
-        window.downloadDocx = () => {
-            const textHTML = state.transcriptState.fullText.replace(/\n\n/g, '<br><br>');
-            const html = `
-                <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-                <head><title>Transcript</title><style>body { font-family: Arial, sans-serif; }</style></head>
-                <body>
-                    <h2>VoiceBridge Transcript</h2>
-                    <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
-                    <hr>
-                    <div>${textHTML}</div>
-                </body>
-                </html>
-            `;
-            const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `VoiceBridge_Transcript_${new Date().toISOString().slice(0,10)}.doc`;
-            a.click();
-            window.URL.revokeObjectURL(url);
-        };
-
-        // Master Waveform
-        function drawMasterWaveform() {
-            const canvas = $('master-canvas');
-            if(!canvas) return;
-            const ctx = canvas.getContext('2d');
-            
-            const draw = () => {
-                if(state.role !== 'host') return;
-                requestAnimationFrame(draw);
-                
-                ctx.fillStyle = '#0f172a';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                
-                let activePeers = Object.values(state.peers).filter(p => p.analyser && p.dataArray);
-                if(activePeers.length === 0) {
-                    ctx.beginPath();
-                    ctx.moveTo(0, canvas.height/2);
-                    ctx.lineTo(canvas.width, canvas.height/2);
-                    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-                    ctx.lineWidth = 2;
-                    ctx.stroke();
-                    return;
-                }
-
-                const bufferLength = activePeers[0].dataArray.length;
-                const sliceWidth = canvas.width * 1.0 / bufferLength;
-                
-                ctx.lineWidth = 2;
-                ctx.strokeStyle = '#3b82f6';
-                ctx.beginPath();
-                
-                let x = 0;
-                for (let i = 0; i < bufferLength; i++) {
-                    let sum = 0;
-                    activePeers.forEach(p => {
-                        p.analyser.getByteTimeDomainData(p.dataArray); 
-                        sum += p.dataArray[i];
-                    });
-                    const v = (sum / activePeers.length) / 128.0;
-                    const y = v * canvas.height / 2;
-
-                    if (i === 0) ctx.moveTo(x, y);
-                    else ctx.lineTo(x, y);
-                    x += sliceWidth;
-                }
-                ctx.lineTo(canvas.width, canvas.height / 2);
-                ctx.stroke();
-            };
-            draw();
-        }
-
-        // --- Event Listeners & Init ---
-        document.addEventListener('DOMContentLoaded', () => {
-            lucide.createIcons();
-            $('btn-select-pc').addEventListener('click', startHost);
-            $('btn-select-mobile').addEventListener('click', () => showView('view-guest-setup'));
-            $('btn-back-home').addEventListener('click', () => showView('view-home'));
-            $('btn-join').addEventListener('click', joinAsGuest);
-        });
-
-    </script>
-    <style>
-        /* Custom Scrollbar for Transcript */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 8px; }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 8px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
-        
-        .glass-panel {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-        }
-    </style>
+/* ─── MISC UTILS ─── */
+.hidden{display:none!important}
+.flex{display:flex}
+.flex-col{flex-direction:column}
+.items-center{align-items:center}
+.gap-8{gap:8px}
+.gap-12{gap:12px}
+.mt-auto{margin-top:auto}
+.text-accent{color:var(--accent)}
+.text-muted{color:var(--text-muted)}
+.text-secondary{color:var(--text-secondary)}
+.font-mono{font-family:'SF Mono',monospace}
+.spinning{animation:spin 1s linear infinite}
+.gradient-text{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+select.field-input{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a8ab0' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:36px}
+</style>
 </head>
-<body class="bg-dark text-slate-200 font-sans min-h-screen overflow-x-hidden selection:bg-primary/30">
+<body>
 
-    <!-- Background Decoration -->
-    <div class="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-        <div class="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-primary/10 blur-[120px]"></div>
-        <div class="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-accent/10 blur-[120px]"></div>
+<!-- ─── SCREENS ─── -->
+
+<!-- Landing -->
+<div id="screen-landing" class="screen active">
+  <div class="landing-bg"></div>
+  <div class="landing-logo">
+    <div class="logo-mark"><svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zm-1 15.93A8 8 0 0 1 4.07 11H2a10 10 0 0 0 9 9.93V23h2v-2.07A10 10 0 0 0 22 11h-2.07A8 8 0 0 1 13 17.93V17h-2v.93z"/></svg></div>
+    <div class="logo-text">TypeFlow Live</div>
+  </div>
+  <p class="landing-tagline">A premium real-time transcription workspace for meetings, lectures, interviews, and live content — zero setup required.</p>
+  <div class="role-cards">
+    <div class="role-card" onclick="startDesktop()">
+      <div class="role-card-icon" style="background:linear-gradient(135deg,rgba(79,142,247,.2),rgba(124,92,252,.2))">🖥️</div>
+      <h3>Open Workspace</h3>
+      <p>Create a session, receive transcriptions, and manage connected devices from your desktop.</p>
+      <span class="badge badge-desktop">PC / Desktop</span>
+    </div>
+    <div class="role-card" onclick="showJoin()">
+      <div class="role-card-icon" style="background:linear-gradient(135deg,rgba(34,211,165,.2),rgba(79,142,247,.2))">🎙️</div>
+      <h3>Join as Mic</h3>
+      <p>Connect your phone as a wireless microphone and stream audio to the desktop workspace.</p>
+      <span class="badge badge-mobile">Mobile / Tablet</span>
+    </div>
+  </div>
+</div>
+
+<!-- Join Screen -->
+<div id="screen-join" class="screen" style="background:var(--bg-deep)">
+  <div class="join-card">
+    <div class="join-back" onclick="showLanding()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      Back
+    </div>
+    <div class="join-title">Join Session</div>
+    <p class="join-sub">Enter the 5-digit code shown on the desktop workspace.</p>
+    <div class="field-group">
+      <div class="field-label">Session Code</div>
+      <input type="text" class="field-input code-input" id="join-code" maxlength="5" placeholder="·····" oninput="this.value=this.value.replace(/\D/g,'')">
+    </div>
+    <div class="field-group">
+      <div class="field-label">Your Nickname</div>
+      <input type="text" class="field-input" id="join-nick" placeholder="e.g. Speaker 1, John's iPhone" maxlength="24">
+    </div>
+    <div class="field-group">
+      <div class="field-label">Language</div>
+      <select class="field-input" id="join-lang">
+        <option value="en-US">English (US)</option>
+        <option value="en-GB">English (UK)</option>
+        <option value="es-ES">Spanish</option>
+        <option value="fr-FR">French</option>
+        <option value="de-DE">German</option>
+        <option value="it-IT">Italian</option>
+        <option value="pt-BR">Portuguese</option>
+        <option value="ja-JP">Japanese</option>
+        <option value="zh-CN">Chinese (Simplified)</option>
+        <option value="hi-IN">Hindi</option>
+        <option value="ar-SA">Arabic</option>
+      </select>
+    </div>
+    <button class="btn btn-accent3 btn-full" onclick="joinSession()" style="margin-top:8px">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+      Connect Microphone
+    </button>
+    <div id="join-error" style="display:none;margin-top:12px;padding:10px 14px;background:rgba(242,92,92,.1);border:1px solid rgba(242,92,92,.3);border-radius:8px;font-size:.82rem;color:var(--danger)"></div>
+  </div>
+</div>
+
+<!-- Mobile Mic Screen -->
+<div id="screen-mobile" class="screen" style="flex-direction:column">
+  <div class="mob-header">
+    <div class="mob-session-info">
+      <span class="mob-session-code">SESSION</span>
+      <span class="mob-session-val" id="mob-code-display">—</span>
+    </div>
+    <div class="mob-indicators">
+      <div class="battery-pill">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="6" width="18" height="12" rx="2"/><path d="M23 13v-2"/><rect x="3" y="8" width="10" height="8" rx="1" fill="currentColor" style="transition:.5s" id="bat-fill"/></svg>
+        <span id="bat-pct">—%</span>
+      </div>
+      <div class="quality-dot" id="mob-quality-dot"></div>
+    </div>
+  </div>
+  <div class="mob-main">
+    <div class="mob-nick">Speaking as <span id="mob-nick-display">—</span></div>
+    <div class="waveform-mini" id="mob-wave">
+      <div class="wave-bar-mini"></div>
+      <div class="wave-bar-mini"></div>
+      <div class="wave-bar-mini"></div>
+      <div class="wave-bar-mini"></div>
+      <div class="wave-bar-mini"></div>
+      <div class="wave-bar-mini"></div>
+      <div class="wave-bar-mini"></div>
+    </div>
+    <div class="mic-btn-wrap">
+      <div class="mic-ripple" id="rip1"></div>
+      <div class="mic-ripple" id="rip2"></div>
+      <div class="mic-ripple" id="rip3"></div>
+      <button class="mic-btn" id="mob-mic-btn" onclick="toggleMicMute()">
+        <svg id="mob-mic-icon" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zm-1 15.93A8 8 0 0 1 4.07 11H2a10 10 0 0 0 9 9.93V23h2v-2.07A10 10 0 0 0 22 11h-2.07A8 8 0 0 1 13 17.93V17h-2v.93z"/></svg>
+      </button>
+    </div>
+    <div class="mic-status-text" id="mob-status-text">Microphone Active</div>
+    <div class="mic-status-sub" id="mob-status-sub">Tap to mute</div>
+  </div>
+  <div class="mob-bottom">
+    <div class="quality-bar-wrap">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6l4 12 4-8 4 6 4-4 6 6"/></svg>
+      <span>Connection</span>
+      <div class="quality-bar"><div class="quality-fill" id="mob-quality-fill"></div></div>
+      <span id="mob-quality-pct">Good</span>
+    </div>
+    <div class="conn-duration" id="mob-duration">Connected · 0:00</div>
+    <button class="btn btn-danger btn-full btn-sm" onclick="disconnectMobile()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      Disconnect
+    </button>
+  </div>
+</div>
+
+<!-- Desktop Workspace -->
+<div id="screen-desktop" class="screen">
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">
+        <div class="sidebar-logo-mark"><svg viewBox="0 0 24 24" fill="white"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zm-1 15.93A8 8 0 0 1 4.07 11H2a10 10 0 0 0 9 9.93V23h2v-2.07A10 10 0 0 0 22 11h-2.07A8 8 0 0 1 13 17.93V17h-2v.93z"/></svg></div>
+        <span class="sidebar-logo-text gradient-text">TypeFlow</span>
+      </div>
+      <button class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Your Session</div>
+      <div class="session-code-display" onclick="copySessionCode()" title="Click to copy">
+        <div class="session-code-label">Join Code</div>
+        <div class="session-code-val" id="session-code-val">—</div>
+        <div class="session-code-hint">Click to copy</div>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-item active" onclick="switchView('transcript')" data-view="transcript">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/></svg>
+        <span class="nav-item-label">Transcript</span>
+      </div>
+      <div class="nav-item" onclick="switchView('analytics')" data-view="analytics">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        <span class="nav-item-label">Analytics</span>
+      </div>
+      <div class="nav-item" onclick="switchView('devices')" data-view="devices">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18" stroke-width="3"/></svg>
+        <span class="nav-item-label">Devices</span>
+        <span class="nav-badge" id="device-count-badge" style="display:none">0</span>
+      </div>
+      <div class="nav-item" onclick="openSettings()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span class="nav-item-label">Settings</span>
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="sidebar-stat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+        <span id="sidebar-duration">0:00:00</span>
+      </div>
+      <div class="sidebar-stat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg>
+        <span id="sidebar-words">0 words</span>
+      </div>
+      <div class="theme-toggle" onclick="toggleTheme()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="theme-icon"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        <span class="nav-item-label" style="font-size:.78rem">Light / Dark</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Area -->
+  <div class="main-area">
+    <div class="topbar">
+      <div class="topbar-title">
+        <span id="topbar-view-name">Live Transcript</span>
+      </div>
+      <div class="topbar-status">
+        <div class="status-dot listening" id="topbar-status-dot"></div>
+        <span id="topbar-status-text">Listening…</span>
+      </div>
+      <div style="flex:1"></div>
+      <div class="topbar-actions">
+        <div class="live-indicator" id="live-indicator">
+          <div class="live-dot-bg"><div class="live-dot"></div></div>
+          LIVE
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="toggleListening()" id="listen-toggle" title="Start/Stop listening">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="listen-icon"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zm-1 15.93A8 8 0 0 1 4.07 11H2a10 10 0 0 0 9 9.93V23h2v-2.07A10 10 0 0 0 22 11h-2.07A8 8 0 0 1 13 17.93V17h-2v.93z"/></svg>
+          <span id="listen-label">Pause</span>
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="toggleFocusMode()" title="Focus mode">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+        </button>
+      </div>
     </div>
 
-    <!-- Main Container -->
-    <div class="relative z-10 w-full min-h-screen flex flex-col">
-        
-        <!-- Header -->
-        <header class="w-full p-4 md:p-6 flex justify-between items-center glass-panel border-b-0 sticky top-0 z-50">
-            <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
-                    <i data-lucide="waves" class="w-5 h-5 text-white"></i>
-                </div>
-                <h1 class="text-xl font-bold tracking-tight text-white">VoiceBridge</h1>
+    <div class="content-area">
+      <!-- Waveform -->
+      <div class="waveform-container" id="waveform-container">
+        <canvas class="waveform-canvas" id="waveform-canvas"></canvas>
+      </div>
+
+      <!-- Transcript View -->
+      <div class="view active" id="view-transcript">
+        <div class="transcript-toolbar">
+          <div class="toolbar-group">
+            <button class="tool-btn" onclick="undoTranscript()" title="Undo (Ctrl+Z)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M3 13A9 9 0 1 0 5.91 5.91"/></svg> Undo
+            </button>
+            <button class="tool-btn" onclick="redoTranscript()" title="Redo (Ctrl+Y)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 7v6h-6"/><path d="M21 13A9 9 0 1 1 18.09 5.91"/></svg> Redo
+            </button>
+          </div>
+          <div class="toolbar-sep"></div>
+          <div class="toolbar-group">
+            <button class="tool-btn" onclick="insertTimestamp()" title="Insert timestamp">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg> Timestamp
+            </button>
+            <button class="tool-btn" id="autoscroll-btn" onclick="toggleAutoScroll()" class="active" title="Auto-scroll">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17,1 21,5 17,9"/><path d="M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg> Auto-scroll
+            </button>
+            <button class="tool-btn" id="timestamps-btn" onclick="toggleTimestamps()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Timestamps
+            </button>
+          </div>
+          <div class="toolbar-sep"></div>
+          <div class="toolbar-group">
+            <button class="tool-btn" onclick="copyTranscript()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy
+            </button>
+            <button class="tool-btn" onclick="clearTranscript()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> Clear
+            </button>
+          </div>
+          <div class="toolbar-sep"></div>
+          <div class="toolbar-group">
+            <button class="tool-btn" onclick="exportTxt()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg> TXT
+            </button>
+            <button class="tool-btn" onclick="exportDocx()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="9" y1="13" x2="15" y2="13"/></svg> DOCX
+            </button>
+            <button class="tool-btn" onclick="exportPdf()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="9" y1="17" x2="15" y2="17"/><line x1="9" y1="13" x2="11" y2="13"/></svg> PDF
+            </button>
+          </div>
+          <div class="search-bar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" placeholder="Search…" id="search-input" oninput="searchTranscript(this.value)">
+          </div>
+        </div>
+        <div class="transcript-pane" id="transcript-pane">
+          <div id="transcript-empty" class="transcript-empty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zm-1 15.93A8 8 0 0 1 4.07 11H2a10 10 0 0 0 9 9.93V23h2v-2.07A10 10 0 0 0 22 11h-2.07A8 8 0 0 1 13 17.93V17h-2v.93z"/></svg>
+            <h3>Ready to Transcribe</h3>
+            <p>Start speaking or connect a microphone device. Your transcription will appear here in real time.</p>
+          </div>
+          <div id="transcript-content" class="transcript-content" contenteditable="true" spellcheck="false" style="display:none" oninput="onTranscriptEdit()"></div>
+        </div>
+      </div>
+
+      <!-- Analytics View -->
+      <div class="view" id="view-analytics">
+        <div style="overflow-y:auto;padding:24px;flex:1">
+          <div class="section-title">Real-Time Stats</div>
+          <div class="analytics-grid">
+            <div class="analytics-card accent-blue">
+              <div class="analytics-card-label">Live WPM</div>
+              <div class="analytics-card-value" id="stat-live-wpm">0</div>
+              <div class="analytics-card-sub">words per minute</div>
+              <div class="wpm-chart"><div class="wpm-bars" id="wpm-chart-bars"></div></div>
             </div>
-            <div class="flex items-center gap-4 text-sm font-medium">
-                <span class="flex items-center gap-2 text-emerald-400 bg-emerald-400/10 px-3 py-1.5 rounded-full">
-                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Systems Online
-                </span>
+            <div class="analytics-card accent-purple">
+              <div class="analytics-card-label">Average WPM</div>
+              <div class="analytics-card-value" id="stat-avg-wpm">0</div>
+              <div class="analytics-card-sub">session average</div>
             </div>
-        </header>
-
-        <!-- VIEW: HOME (Mode Selection) -->
-        <main id="view-home" class="flex-1 flex flex-col items-center justify-center p-6 animate-in fade-in duration-500">
-            <div class="max-w-2xl text-center space-y-6 mb-12">
-                <h2 class="text-4xl md:text-6xl font-extrabold text-white tracking-tight">Professional Audio <br><span class="text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent">Transcription Network</span></h2>
-                <p class="text-slate-400 text-lg max-w-xl mx-auto">Turn your mobile devices into high-fidelity wireless microphones feeding a real-time, AI-cleaned transcription dashboard.</p>
+            <div class="analytics-card accent-green">
+              <div class="analytics-card-label">Words Typed</div>
+              <div class="analytics-card-value" id="stat-words">0</div>
+              <div class="analytics-card-sub">total words</div>
             </div>
-
-            <div class="grid md:grid-cols-2 gap-6 w-full max-w-4xl">
-                <!-- PC Mode Card -->
-                <button id="btn-select-pc" class="group relative glass-panel p-8 rounded-3xl text-left hover:bg-white/[0.05] transition-all duration-300 overflow-hidden">
-                    <div class="absolute inset-0 bg-gradient-to-br from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                    <div class="w-14 h-14 rounded-2xl bg-primary/20 flex items-center justify-center mb-6 text-primary border border-primary/30">
-                        <i data-lucide="monitor" class="w-7 h-7"></i>
-                    </div>
-                    <h3 class="text-2xl font-bold text-white mb-2">Host Dashboard</h3>
-                    <p class="text-slate-400 mb-6">Create a room, receive multiple audio streams, and view live formatting transcriptions.</p>
-                    <div class="flex items-center text-primary font-medium group-hover:translate-x-2 transition-transform">
-                        Start Session <i data-lucide="arrow-right" class="w-4 h-4 ml-2"></i>
-                    </div>
-                </button>
-
-                <!-- Mobile Mode Card -->
-                <button id="btn-select-mobile" class="group relative glass-panel p-8 rounded-3xl text-left hover:bg-white/[0.05] transition-all duration-300 overflow-hidden">
-                    <div class="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                    <div class="w-14 h-14 rounded-2xl bg-emerald-500/20 flex items-center justify-center mb-6 text-emerald-400 border border-emerald-500/30">
-                        <i data-lucide="smartphone" class="w-7 h-7"></i>
-                    </div>
-                    <h3 class="text-2xl font-bold text-white mb-2">Connect Microphone</h3>
-                    <p class="text-slate-400 mb-6">Join an existing session using a code to stream your voice with ultra-low latency.</p>
-                    <div class="flex items-center text-emerald-400 font-medium group-hover:translate-x-2 transition-transform">
-                        Join Room <i data-lucide="arrow-right" class="w-4 h-4 ml-2"></i>
-                    </div>
-                </button>
+            <div class="analytics-card">
+              <div class="analytics-card-label">Characters</div>
+              <div class="analytics-card-value" id="stat-chars">0</div>
+              <div class="analytics-card-sub">characters typed</div>
             </div>
-        </main>
-
-        <!-- VIEW: GUEST SETUP -->
-        <main id="view-guest-setup" class="hidden flex-1 flex flex-col items-center justify-center p-6">
-            <div class="glass-panel w-full max-w-md p-8 rounded-3xl space-y-8 relative overflow-hidden">
-                <button id="btn-back-home" class="absolute top-6 left-6 text-slate-400 hover:text-white transition-colors">
-                    <i data-lucide="arrow-left" class="w-5 h-5"></i>
-                </button>
-                <div class="text-center pt-4">
-                    <div class="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700">
-                        <i data-lucide="mic" class="w-8 h-8 text-primary"></i>
-                    </div>
-                    <h2 class="text-2xl font-bold text-white">Join Session</h2>
-                    <p class="text-slate-400 text-sm mt-2">Enter the 5-digit code shown on the host display.</p>
-                </div>
-
-                <div class="space-y-4">
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2 ml-1">Room Code</label>
-                        <input type="number" id="join-code" class="w-full bg-black/30 border border-slate-700 rounded-xl px-4 py-3 text-white text-center text-2xl tracking-widest focus:outline-none focus:border-primary transition-colors" placeholder="00000" maxlength="5">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2 ml-1">Device Nickname</label>
-                        <input type="text" id="join-nickname" class="w-full bg-black/30 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors" placeholder="e.g. Meeting Table 1">
-                    </div>
-                </div>
-
-                <button id="btn-join" class="w-full bg-primary hover:bg-blue-600 text-white font-semibold py-4 rounded-xl shadow-lg shadow-primary/30 transition-all flex items-center justify-center gap-2">
-                    Connect Microphone
-                </button>
+            <div class="analytics-card accent-warn">
+              <div class="analytics-card-label">Sentences</div>
+              <div class="analytics-card-value" id="stat-sentences">0</div>
+              <div class="analytics-card-sub">detected</div>
             </div>
-        </main>
-
-        <!-- VIEW: GUEST ACTIVE (Mobile Mic Mode) -->
-        <main id="view-guest-active" class="hidden flex-1 flex flex-col items-center justify-center p-6">
-            <div class="text-center space-y-8 w-full max-w-sm">
-                
-                <div class="flex justify-between items-center px-4 py-2 bg-black/20 rounded-full border border-white/5">
-                    <div class="flex items-center gap-2">
-                        <i data-lucide="hash" class="w-4 h-4 text-slate-400"></i>
-                        <span id="active-room-code" class="font-mono font-bold tracking-widest text-lg">00000</span>
-                    </div>
-                    <span id="mobile-status" class="text-emerald-400 text-sm font-medium flex items-center gap-2">
-                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Connected
-                    </span>
-                </div>
-
-                <div class="text-2xl font-semibold text-white" id="active-nickname">Nickname</div>
-
-                <!-- Big Mic Button -->
-                <button id="mobile-mic-btn" onclick="toggleMobileMic()" class="relative w-48 h-48 mx-auto rounded-full bg-red-500 shadow-[0_0_40px_rgba(239,68,68,0.4)] flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95">
-                    <div class="absolute inset-2 rounded-full border-2 border-white/20"></div>
-                    <i data-lucide="mic" id="mobile-mic-icon" class="w-20 h-20 text-white animate-pulse-fast"></i>
-                </button>
-
-                <div class="glass-panel p-4 rounded-2xl min-h-[100px] flex items-center justify-center">
-                    <p id="mobile-transcript" class="text-slate-300 italic text-center text-sm">Listening...</p>
-                </div>
-
-                <button onclick="stopGuest()" class="px-6 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white text-sm font-medium transition-colors">
-                    Disconnect
-                </button>
+            <div class="analytics-card">
+              <div class="analytics-card-label">Paragraphs</div>
+              <div class="analytics-card-value" id="stat-paras">0</div>
+              <div class="analytics-card-sub">paragraph blocks</div>
             </div>
-        </main>
+            <div class="analytics-card accent-blue">
+              <div class="analytics-card-label">Session Duration</div>
+              <div class="analytics-card-value" id="stat-duration">0:00</div>
+              <div class="analytics-card-sub">time elapsed</div>
+            </div>
+            <div class="analytics-card accent-green">
+              <div class="analytics-card-label">Active Mics</div>
+              <div class="analytics-card-value" id="stat-mics">0</div>
+              <div class="analytics-card-sub">devices speaking</div>
+            </div>
+            <div class="analytics-card accent-purple">
+              <div class="analytics-card-label">Reading Time</div>
+              <div class="analytics-card-value" id="stat-readtime">0m</div>
+              <div class="analytics-card-sub">estimated</div>
+            </div>
+            <div class="analytics-card">
+              <div class="analytics-card-label">Transcript Size</div>
+              <div class="analytics-card-value" id="stat-size">0B</div>
+              <div class="analytics-card-sub">total data</div>
+            </div>
+            <div class="analytics-card accent-green">
+              <div class="analytics-card-label">Accuracy</div>
+              <div class="analytics-card-value" id="stat-accuracy">—</div>
+              <div class="analytics-card-sub">speech recognition</div>
+            </div>
+            <div class="analytics-card accent-warn">
+              <div class="analytics-card-label">Speaking Time</div>
+              <div class="analytics-card-value" id="stat-speaking">0s</div>
+              <div class="analytics-card-sub">active speech detected</div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-        <!-- VIEW: HOST DASHBOARD -->
-        <main id="view-host" class="hidden flex-1 flex overflow-hidden p-4 md:p-6 gap-6 flex-col md:flex-row h-[calc(100vh-80px)]">
-            
-            <!-- Sidebar: Connections & Info -->
-            <aside class="w-full md:w-80 flex flex-col gap-4">
-                <!-- Info Card -->
-                <div class="glass-panel rounded-2xl p-6 flex flex-col items-center justify-center text-center relative overflow-hidden">
-                    <div class="absolute top-0 w-full h-1 bg-gradient-to-r from-primary to-accent"></div>
-                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Join Code</p>
-                    <h2 id="host-room-code" class="text-5xl font-mono font-bold tracking-[0.2em] text-white">00000</h2>
-                    
-                    <div class="mt-6 flex items-center gap-4 w-full">
-                        <div class="flex-1 bg-black/20 rounded-lg p-3">
-                            <p class="text-[10px] text-slate-400 uppercase">Duration</p>
-                            <p id="session-timer" class="font-mono text-lg font-medium">00:00</p>
-                        </div>
-                        <div class="flex-1 bg-black/20 rounded-lg p-3">
-                            <p class="text-[10px] text-slate-400 uppercase">Language</p>
-                            <p class="font-medium text-sm mt-1">Auto (EN)</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Master Waveform -->
-                <div class="glass-panel rounded-2xl p-4 flex flex-col h-32">
-                    <p class="text-xs font-medium text-slate-400 mb-2 flex items-center gap-2">
-                        <i data-lucide="activity" class="w-3 h-3"></i> Master Output
-                    </p>
-                    <canvas id="master-canvas" class="w-full flex-1 rounded-lg bg-black/30"></canvas>
-                </div>
-
-                <!-- Mic List -->
-                <div class="glass-panel rounded-2xl flex-1 flex flex-col overflow-hidden">
-                    <div class="p-4 border-b border-glassBorder flex justify-between items-center">
-                        <h3 class="text-sm font-semibold text-white flex items-center gap-2">
-                            <i data-lucide="radio-receiver" class="w-4 h-4 text-primary"></i> Connected Mics
-                        </h3>
-                    </div>
-                    <div id="mic-list" class="flex-1 overflow-y-auto p-4 space-y-3">
-                        <!-- Mic cards injected here -->
-                        <div class="text-center text-gray-500 text-sm py-8 border border-dashed border-gray-700 rounded-xl">
-                            Waiting for microphones...
-                        </div>
-                    </div>
-                </div>
-            </aside>
-
-            <!-- Main Output: Transcription -->
-            <section class="flex-1 flex flex-col glass-panel rounded-2xl overflow-hidden relative">
-                
-                <!-- Toolbar -->
-                <div class="p-3 border-b border-glassBorder bg-black/10 flex justify-between items-center flex-wrap gap-2">
-                    <div class="flex gap-2">
-                        <button onclick="copyText()" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium flex items-center gap-2 transition-colors">
-                            <i data-lucide="copy" class="w-3 h-3"></i> Copy
-                        </button>
-                        <button onclick="clearText()" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium flex items-center gap-2 transition-colors">
-                            <i data-lucide="trash-2" class="w-3 h-3"></i> Clear
-                        </button>
-                    </div>
-                    <div class="flex gap-2">
-                        <button onclick="downloadTxt()" class="px-3 py-1.5 rounded-lg bg-primary/20 hover:bg-primary/30 text-primary text-xs font-medium flex items-center gap-2 transition-colors">
-                            <i data-lucide="download" class="w-3 h-3"></i> TXT
-                        </button>
-                        <button onclick="downloadDocx()" class="px-3 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-xs font-medium flex items-center gap-2 transition-colors">
-                            <i data-lucide="file-down" class="w-3 h-3"></i> DOCX
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Text Area -->
-                <div id="transcript-container" class="flex-1 p-6 md:p-10 overflow-y-auto scroll-smooth">
-                    <div id="transcript-output" class="text-lg md:text-xl leading-relaxed text-slate-100 font-serif max-w-4xl mx-auto pb-20">
-                        <p class="text-slate-500 italic text-base font-sans flex items-center justify-center h-full mt-20 gap-3">
-                            <i data-lucide="mic" class="w-5 h-5"></i>
-                            Connect a mobile microphone using code <span class="font-mono text-white font-bold bg-white/10 px-2 py-0.5 rounded" id="inline-code"></span> to start.
-                        </p>
-                        <script>
-                            // Small hack to keep inline code updated
-                            setInterval(()=> { if($('inline-code') && state.roomCode) $('inline-code').textContent = state.roomCode }, 1000);
-                        </script>
-                    </div>
-                </div>
-
-                <!-- Stats Footer -->
-                <div class="absolute bottom-0 w-full p-3 bg-dark/80 backdrop-blur-md border-t border-glassBorder flex justify-center gap-8 text-xs text-slate-400">
-                    <span>Words: <span id="word-count" class="text-white font-mono ml-1">0</span></span>
-                    <span>Characters: <span id="char-count" class="text-white font-mono ml-1">0</span></span>
-                    <span class="flex items-center gap-1 text-primary"><i data-lucide="sparkles" class="w-3 h-3"></i> Auto-Clean Active</span>
-                </div>
-            </section>
-        </main>
+      <!-- Devices View -->
+      <div class="view" id="view-devices">
+        <div style="overflow-y:auto;padding:24px;flex:1">
+          <div class="devices-header">
+            <div>
+              <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px">Connected Devices</div>
+              <div class="devices-count" id="devices-count-label">0 devices online</div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-ghost btn-sm" onclick="openSettings()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                Settings
+              </button>
+            </div>
+          </div>
+          <div class="device-cards" id="device-cards-container">
+            <div class="no-devices" id="no-devices-msg">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18" stroke-width="3"/></svg>
+              <div style="font-size:.9rem;font-weight:600;color:var(--text-secondary)">No devices connected</div>
+              <div style="font-size:.8rem">Share the session code on the landing screen to connect a mobile mic</div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
+  </div>
+</div>
 
+<!-- Settings Overlay -->
+<div class="overlay" id="settings-overlay" onclick="closeSettingsIfBg(event)">
+  <div class="panel" style="position:relative">
+    <button class="panel-close" onclick="closeSettings()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <div class="panel-title">Settings</div>
+    <p class="panel-sub">Configure transcription, appearance, and session preferences.</p>
+    <div class="section-title" style="margin-top:0">Transcription</div>
+    <div class="setting-row">
+      <div><div class="setting-label">Remove filler words</div><div class="setting-sub">Removes "um", "uh", "like", "you know"</div></div>
+      <label class="toggle"><input type="checkbox" id="s-fillers" checked><div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+    </div>
+    <div class="setting-row">
+      <div><div class="setting-label">Auto-capitalization</div><div class="setting-sub">Capitalize sentence starts automatically</div></div>
+      <label class="toggle"><input type="checkbox" id="s-caps" checked><div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+    </div>
+    <div class="setting-row">
+      <div><div class="setting-label">Smart punctuation</div><div class="setting-sub">Auto-insert commas, periods, question marks</div></div>
+      <label class="toggle"><input type="checkbox" id="s-punct" checked><div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+    </div>
+    <div class="setting-row">
+      <div><div class="setting-label">Speaker labels</div><div class="setting-sub">Show device nickname before each block</div></div>
+      <label class="toggle"><input type="checkbox" id="s-labels" checked><div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+    </div>
+    <div class="setting-row">
+      <div><div class="setting-label">Paragraph detection</div><div class="setting-sub">Insert paragraph breaks on long pauses</div></div>
+      <label class="toggle"><input type="checkbox" id="s-paras" checked><div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+    </div>
+    <div class="setting-row">
+      <div><div class="setting-label">Language</div></div>
+      <select class="field-input btn-sm" id="s-lang" style="width:auto;padding-right:32px">
+        <option value="en-US">English (US)</option>
+        <option value="en-GB">English (UK)</option>
+        <option value="es-ES">Spanish</option>
+        <option value="fr-FR">French</option>
+        <option value="de-DE">German</option>
+        <option value="it-IT">Italian</option>
+        <option value="pt-BR">Portuguese</option>
+        <option value="ja-JP">Japanese</option>
+        <option value="zh-CN">Chinese (Simplified)</option>
+        <option value="hi-IN">Hindi</option>
+      </select>
+    </div>
+    <div class="section-title">Session</div>
+    <div class="setting-row">
+      <div><div class="setting-label">Auto-save transcript</div><div class="setting-sub">Save to browser storage every 30s</div></div>
+      <label class="toggle"><input type="checkbox" id="s-autosave" checked><div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+    </div>
+    <div class="setting-row">
+      <div><div class="setting-label">Typing animation</div><div class="setting-sub">Animate text appearing character by character</div></div>
+      <label class="toggle"><input type="checkbox" id="s-typeanim" checked><div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+    </div>
+    <div class="setting-row">
+      <div><div class="setting-label">Waveform visualizer</div></div>
+      <label class="toggle"><input type="checkbox" id="s-wave" checked onchange="toggleWaveformSetting()"><div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+    </div>
+    <button class="btn btn-danger btn-sm" style="margin-top:20px" onclick="newSession()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 2v6h6"/><path d="M3 8A9 9 0 1 0 5.91 5.91"/></svg>
+      New Session
+    </button>
+  </div>
+</div>
+
+<!-- Focus mode exit button -->
+<div class="focus-exit hidden" id="focus-exit-btn">
+  <button class="btn btn-ghost btn-sm" onclick="toggleFocusMode()">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+    Exit Focus
+  </button>
+</div>
+
+<!-- Toast Container -->
+<div id="toast-container"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   TYPEFLOW LIVE — Complete Single-File Application
+   ═══════════════════════════════════════════════════════════ */
+
+const DB_NAME='typeflow_db',DB_VER=1,STORE='sessions';
+let db,sessionCode,recognition,isListening=false,isMuted=false;
+let transcriptText='',interimText='',undoStack=[],redoStack=[];
+let autoScroll=true,showTimestamps=false,focusMode=false;
+let sessionStart=null,speakingTime=0,speakingStart=null;
+let wpmHistory=[],wpmInterval,analyticsInterval,autoSaveInterval;
+let connectedDevices={};
+let mobileSpeechRecognition=null,mobileConnStart=null,mobileDurationInterval=null;
+let peerConnections={},dataChannels={};
+let waveformAnim=null,audioCtx=null,analyser=null,audioSource=null;
+let theme='dark';
+let animQueue=[];
+let isAnimating=false;
+
+/* ─── IndexedDB ─── */
+function initDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,DB_VER);r.onupgradeneeded=e=>{e.target.result.createObjectStore(STORE,{keyPath:'code'})};r.onsuccess=e=>{db=e.target.result;res()};r.onerror=()=>res()})}
+function saveSession(){if(!db||!sessionCode)return;const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).put({code:sessionCode,text:transcriptText,ts:Date.now()})}
+function loadSession(code){return new Promise(res=>{if(!db)return res(null);const tx=db.transaction(STORE,'readonly');const req=tx.objectStore(STORE).get(code);req.onsuccess=()=>res(req.result||null);req.onerror=()=>res(null)})}
+
+/* ─── SCREEN MANAGEMENT ─── */
+function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById('screen-'+id).classList.add('active')}
+function showLanding(){showScreen('landing')}
+function showJoin(){showScreen('join')}
+function showDesktop(){showScreen('desktop')}
+function showMobile(){showScreen('mobile')}
+
+/* ─── SESSION CODE ─── */
+function generateCode(){return String(Math.floor(10000+Math.random()*90000))}
+
+/* ─── DESKTOP INIT ─── */
+async function startDesktop(){
+  await initDB();
+  sessionCode=generateCode();
+  const saved=await loadSession(sessionCode);
+  document.getElementById('session-code-val').textContent=sessionCode;
+  document.getElementById('sidebar-duration').textContent='0:00:00';
+  showScreen('desktop');
+  sessionStart=Date.now();
+  initWaveform();
+  startAnalyticsLoop();
+  startAutoSave();
+  initSpeechRecognition();
+  showToast('Session '+sessionCode+' started','success');
+  if(saved&&saved.text){
+    if(confirm('Restore previous transcript for this session?')){
+      transcriptText=saved.text;
+      renderTranscript();
+    }
+  }
+  window.addEventListener('keydown',handleKeyboard);
+}
+
+/* ─── SPEECH RECOGNITION (Desktop) ─── */
+function initSpeechRecognition(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){showToast('Speech recognition not supported in this browser. Use Chrome or Edge.','error');setStatus('Not supported','error');return}
+  recognition=new SR();
+  recognition.continuous=true;
+  recognition.interimResults=true;
+  recognition.maxAlternatives=1;
+  recognition.lang=document.getElementById('s-lang').value;
+  recognition.onresult=handleSpeechResult;
+  recognition.onerror=e=>{if(e.error==='no-speech')return;if(e.error==='not-allowed'){showToast('Microphone access denied','error');setStatus('Mic denied','error');return}setStatus('Error: '+e.error,'error')};
+  recognition.onend=()=>{if(isListening)setTimeout(()=>{try{recognition.start()}catch(e){}},200)};
+  startListening();
+}
+
+function startListening(){
+  if(!recognition)return;
+  isListening=true;
+  speakingStart=Date.now();
+  try{recognition.lang=document.getElementById('s-lang')?document.getElementById('s-lang').value:'en-US';recognition.start()}catch(e){}
+  setStatus('Listening…','listening');
+  document.getElementById('listen-label').textContent='Pause';
+  document.getElementById('live-indicator').style.display='flex';
+}
+
+function stopListening(){
+  isListening=false;
+  if(speakingStart){speakingTime+=(Date.now()-speakingStart)/1000;speakingStart=null}
+  try{recognition.stop()}catch(e){}
+  setStatus('Paused','idle');
+  document.getElementById('listen-label').textContent='Resume';
+  document.getElementById('live-indicator').style.display='none';
+  interimText='';
+  renderTranscript();
+}
+
+function toggleListening(){isListening?stopListening():startListening()}
+
+function handleSpeechResult(e){
+  let interim='';
+  let final='';
+  for(let i=e.resultIndex;i<e.results.length;i++){
+    const t=e.results[i][0].transcript;
+    if(e.results[i].isFinal){final+=t}
+    else{interim+=t}
+  }
+  if(final){
+    let processed=processText(final,'Desktop Mic');
+    if(processed){
+      queueTypingAnimation(processed);
+    }
+    interimText='';
+  } else {
+    interimText=interim;
+    renderTranscriptWithInterim();
+  }
+  if(speakingStart===null&&isListening){speakingStart=Date.now()}
+}
+
+/* ─── TEXT PROCESSING ─── */
+function processText(text,speaker){
+  const sFillers=document.getElementById('s-fillers')?.checked??true;
+  const sCaps=document.getElementById('s-caps')?.checked??true;
+  const sPunct=document.getElementById('s-punct')?.checked??true;
+  const sLabels=document.getElementById('s-labels')?.checked??true;
+  const sParas=document.getElementById('s-paras')?.checked??true;
+  if(sFillers){text=text.replace(/\b(um+|uh+|er+|ah+|hmm+|like|you know|i mean|so|actually|basically|literally|right)\b[,.]?\s*/gi,(m,w)=>{const ok=['so','right','actually','basically','literally','like'];return ok.includes(w.toLowerCase().trim())?m:''})}
+  text=text.trim();
+  if(!text)return null;
+  if(sCaps)text=text.charAt(0).toUpperCase()+text.slice(1);
+  if(sPunct&&!/[.!?]$/.test(text))text+='.';
+  let prefix='';
+  if(sLabels&&speaker){prefix='\n['+speaker+']\n'}
+  if(sParas&&transcriptText)prefix='\n\n'+prefix;
+  if(showTimestamps){const now=new Date();prefix+='['+now.toLocaleTimeString()+'] '}
+  return prefix+text+' ';
+}
+
+/* ─── TYPING ANIMATION ─── */
+function queueTypingAnimation(text){
+  animQueue.push(text);
+  if(!isAnimating)processAnimQueue();
+}
+
+function processAnimQueue(){
+  if(!animQueue.length){isAnimating=false;return}
+  isAnimating=true;
+  const text=animQueue.shift();
+  const useAnim=document.getElementById('s-typeanim')?.checked??true;
+  if(useAnim){typeAnimate(text,()=>processAnimQueue())}
+  else{transcriptText+=text;renderTranscript();processAnimQueue()}
+}
+
+function typeAnimate(text,cb){
+  const el=document.getElementById('transcript-content');
+  document.getElementById('transcript-empty').style.display='none';
+  el.style.display='block';
+  let i=0;
+  const startLen=transcriptText.length;
+  const speed=Math.max(8,Math.min(30,Math.floor(3000/text.length)));
+  const cursor=document.createElement('span');
+  cursor.className='cursor-blink';
+  function tick(){
+    if(i<text.length){
+      transcriptText+=text[i];
+      i++;
+      renderTranscriptInner();
+      if(autoScroll)scrollBottom();
+      setTimeout(tick,speed);
+    } else {
+      if(cb)cb();
+    }
+  }
+  tick();
+}
+
+function renderTranscriptInner(){
+  const el=document.getElementById('transcript-content');
+  const search=document.getElementById('search-input').value;
+  let html=escapeHtml(transcriptText);
+  if(search)html=html.replace(new RegExp(escapeRegex(search),'gi'),m=>`<mark class="highlight">${m}</mark>`);
+  html=html.replace(/\[([^\]]+)\]\n/g,'<span class="speaker-label">$1</span>');
+  html=html.replace(/\[(\d{1,2}:\d{2}:\d{2}[^\]]*)\]/g,'<span class="ts-label">[$1]</span>');
+  el.innerHTML=html+'<span class="cursor-blink"></span>';
+  if(autoScroll)scrollBottom();
+}
+
+function renderTranscript(){
+  const el=document.getElementById('transcript-content');
+  const empty=document.getElementById('transcript-empty');
+  if(!transcriptText){empty.style.display='flex';el.style.display='none';return}
+  empty.style.display='none';
+  el.style.display='block';
+  renderTranscriptInner();
+}
+
+function renderTranscriptWithInterim(){
+  const el=document.getElementById('transcript-content');
+  const empty=document.getElementById('transcript-empty');
+  if(!transcriptText&&!interimText){empty.style.display='flex';el.style.display='none';return}
+  empty.style.display='none';
+  el.style.display='block';
+  const search=document.getElementById('search-input')?.value||'';
+  let html=escapeHtml(transcriptText);
+  if(search)html=html.replace(new RegExp(escapeRegex(search),'gi'),m=>`<mark class="highlight">${m}</mark>`);
+  html=html.replace(/\[([^\]]+)\]\n/g,'<span class="speaker-label">$1</span>');
+  html=html.replace(/\[(\d{1,2}:\d{2}:\d{2}[^\]]*)\]/g,'<span class="ts-label">[$1]</span>');
+  if(interimText)html+=`<span class="interim-text">${escapeHtml(interimText)}</span>`;
+  el.innerHTML=html+'<span class="cursor-blink"></span>';
+  if(autoScroll)scrollBottom();
+}
+
+function escapeHtml(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function escapeRegex(s){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
+function scrollBottom(){const p=document.getElementById('transcript-pane');if(p)p.scrollTop=p.scrollHeight}
+
+/* ─── TRANSCRIPT ACTIONS ─── */
+function onTranscriptEdit(){
+  const el=document.getElementById('transcript-content');
+  undoStack.push(transcriptText);
+  if(undoStack.length>100)undoStack.shift();
+  redoStack=[];
+  transcriptText=el.innerText;
+}
+function undoTranscript(){if(undoStack.length){redoStack.push(transcriptText);transcriptText=undoStack.pop();renderTranscript();showToast('Undo','info')}}
+function redoTranscript(){if(redoStack.length){undoStack.push(transcriptText);transcriptText=redoStack.pop();renderTranscript();showToast('Redo','info')}}
+function insertTimestamp(){const now=new Date();const ts='\n['+now.toLocaleTimeString()+'] ';transcriptText+=ts;renderTranscript()}
+function toggleAutoScroll(){autoScroll=!autoScroll;document.getElementById('autoscroll-btn').classList.toggle('active',autoScroll);showToast(autoScroll?'Auto-scroll on':'Auto-scroll off','info')}
+function toggleTimestamps(){showTimestamps=!showTimestamps;document.getElementById('timestamps-btn').classList.toggle('active',showTimestamps);showToast(showTimestamps?'Timestamps on':'Timestamps off','info')}
+function copyTranscript(){navigator.clipboard.writeText(transcriptText).then(()=>showToast('Transcript copied','success'))}
+function clearTranscript(){if(!transcriptText)return;if(!confirm('Clear the entire transcript? This cannot be undone.'))return;undoStack.push(transcriptText);transcriptText='';interimText='';renderTranscript();showToast('Transcript cleared','info')}
+function searchTranscript(q){renderTranscript();if(q){const el=document.getElementById('transcript-content');const first=el.querySelector('mark.highlight');if(first)first.scrollIntoView({behavior:'smooth',block:'center'})}}
+function toggleFocusMode(){focusMode=!focusMode;document.body.classList.toggle('focus-mode',focusMode);document.getElementById('focus-exit-btn').classList.toggle('hidden',!focusMode)}
+function toggleWaveformSetting(){const wc=document.getElementById('waveform-container');wc.style.display=document.getElementById('s-wave').checked?'':'none'}
+
+/* ─── EXPORT ─── */
+function exportTxt(){const b=new Blob([transcriptText],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='typeflow-transcript-'+sessionCode+'.txt';a.click();showToast('Exported TXT','success')}
+function exportDocx(){
+  const escaped=transcriptText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const xml=`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"><head><meta charset="UTF-8"/><title>TypeFlow Transcript</title>
+<style>body{font-family:Calibri,sans-serif;font-size:12pt;line-height:1.8;margin:2cm}h1{color:#2563eb}</style></head>
+<body><h1>TypeFlow Live — Transcript</h1><p>Session: ${sessionCode} &nbsp;|&nbsp; ${new Date().toLocaleString()}</p><hr/><p>${escaped.replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br/>')}</p></body></html>`;
+  const b=new Blob([xml],{type:'application/msword'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='typeflow-transcript-'+sessionCode+'.doc';a.click();showToast('Exported DOCX','success')
+}
+function exportPdf(){
+  const w=window.open('','_blank');
+  w.document.write(`<html><head><title>TypeFlow Transcript</title><style>body{font-family:Georgia,serif;font-size:13px;line-height:1.8;margin:40px;color:#111}h1{color:#2563eb;font-size:22px}pre{white-space:pre-wrap;font-family:inherit}</style></head><body><h1>TypeFlow Live — Transcript</h1><p>Session: ${sessionCode} | ${new Date().toLocaleString()}</p><hr><pre>${escapeHtml(transcriptText)}</pre><script>window.onload=()=>window.print()<\/script></body></html>`);
+  w.document.close();showToast('Print to PDF dialog opened','info')
+}
+
+/* ─── ANALYTICS ─── */
+function startAnalyticsLoop(){
+  updateAnalytics();
+  analyticsInterval=setInterval(updateAnalytics,1000);
+  initWpmChart();
+  wpmInterval=setInterval(updateWpmHistory,5000);
+}
+let lastWordCount=0,lastWpmTime=Date.now(),currentWpm=0;
+function updateAnalytics(){
+  const words=transcriptText.trim()?transcriptText.trim().split(/\s+/).filter(Boolean):[];
+  const wc=words.length;
+  const chars=transcriptText.length;
+  const sentences=(transcriptText.match(/[.!?]+/g)||[]).length;
+  const paras=(transcriptText.split(/\n\n+/).filter(s=>s.trim())).length;
+  const dur=sessionStart?(Date.now()-sessionStart)/1000:0;
+  const spk=speakingStart?(speakingTime+(Date.now()-speakingStart)/1000):speakingTime;
+  const readMin=Math.ceil(wc/200);
+  const avgWpm=dur>60?Math.round(wc/(dur/60)):0;
+  const nowT=Date.now();
+  const deltaSec=(nowT-lastWpmTime)/1000;
+  if(deltaSec>=2){const deltaW=wc-lastWordCount;currentWpm=Math.round((deltaW/deltaSec)*60);lastWordCount=wc;lastWpmTime=nowT}
+  const activeMics=Object.values(connectedDevices).filter(d=>d.speaking&&!d.muted).length;
+  const size=chars<1024?chars+'B':chars<1048576?Math.round(chars/1024)+'KB':(chars/1048576).toFixed(1)+'MB';
+  el('stat-live-wpm',Math.max(0,currentWpm));
+  el('stat-avg-wpm',avgWpm);
+  el('stat-words',wc.toLocaleString());
+  el('stat-chars',chars.toLocaleString());
+  el('stat-sentences',sentences.toLocaleString());
+  el('stat-paras',paras);
+  el('stat-duration',fmtTime(dur));
+  el('stat-mics',activeMics);
+  el('stat-readtime',readMin+'m');
+  el('stat-size',size);
+  el('stat-accuracy',isListening?'High':'—');
+  el('stat-speaking',Math.round(spk)+'s');
+  const sWords=document.getElementById('sidebar-words');
+  if(sWords)sWords.textContent=wc.toLocaleString()+' words';
+  const sDur=document.getElementById('sidebar-duration');
+  if(sDur)sDur.textContent=fmtTime(dur,true);
+}
+function el(id,val){const e=document.getElementById(id);if(e)e.textContent=val}
+function fmtTime(s,long=false){
+  s=Math.floor(s);
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;
+  if(long)return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  if(h)return `${h}h ${m}m`;
+  return `${m}:${String(sec).padStart(2,'0')}`;
+}
+function initWpmChart(){
+  const c=document.getElementById('wpm-chart-bars');
+  if(!c)return;
+  for(let i=0;i<20;i++){const b=document.createElement('div');b.className='wpm-bar';b.style.height='4px';c.appendChild(b)}
+}
+function updateWpmHistory(){
+  wpmHistory.push(Math.max(0,currentWpm));
+  if(wpmHistory.length>20)wpmHistory.shift();
+  const bars=document.querySelectorAll('#wpm-chart-bars .wpm-bar');
+  const max=Math.max(...wpmHistory,1);
+  bars.forEach((b,i)=>{const v=wpmHistory[i]||0;b.style.height=Math.max(4,Math.round((v/max)*76))+'px'});
+}
+function startAutoSave(){autoSaveInterval=setInterval(()=>{if(document.getElementById('s-autosave')?.checked)saveSession()},30000)}
+
+/* ─── DEVICES ─── */
+let deviceIdCounter=0;
+function addDevice(id,nick,lang){
+  connectedDevices[id]={id,nick,lang:lang||'en-US',speaking:false,muted:false,battery:null,quality:90,connTime:Date.now(),priority:false,active:true};
+  renderDevices();
+  updateDeviceBadge();
+  showToast(nick+' connected','success');
+}
+function removeDevice(id){
+  if(connectedDevices[id]){const nick=connectedDevices[id].nick;delete connectedDevices[id];renderDevices();updateDeviceBadge();showToast(nick+' disconnected','info')}}
+function muteDevice(id){
+  if(!connectedDevices[id])return;
+  connectedDevices[id].muted=!connectedDevices[id].muted;
+  renderDevices();
+  showToast(connectedDevices[id].nick+(connectedDevices[id].muted?' muted':' unmuted'),'info');
+}
+function setPriority(id){Object.keys(connectedDevices).forEach(k=>connectedDevices[k].priority=false);connectedDevices[id].priority=true;renderDevices();showToast(connectedDevices[id].nick+' set as priority','info')}
+function renderDevices(){
+  const cont=document.getElementById('device-cards-container');
+  const noMsg=document.getElementById('no-devices-msg');
+  const devs=Object.values(connectedDevices);
+  const label=document.getElementById('devices-count-label');
+  if(label)label.textContent=devs.length+' device'+(devs.length!==1?'s':'')+' online';
+  if(!devs.length){if(noMsg)noMsg.style.display='flex';cont.querySelectorAll('.device-card').forEach(c=>c.remove());return}
+  if(noMsg)noMsg.style.display='none';
+  cont.querySelectorAll('.device-card').forEach(c=>c.remove());
+  devs.forEach(d=>{
+    const card=document.createElement('div');
+    card.className='device-card'+(d.speaking&&!d.muted?' speaking':'')+(d.priority?' priority':'');
+    const emojis=['📱','💻','🎙️','📡','🎧','🖥️'];
+    const emoji=emojis[Math.abs(d.nick.charCodeAt(0))%emojis.length];
+    const sigBars=[1,2,3,4].map(i=>`<div class="signal-bar${d.quality>=(i*25)?' active':''}"></div>`).join('');
+    const dur=Math.floor((Date.now()-d.connTime)/1000);
+    card.innerHTML=`
+      <div class="device-avatar" style="background:linear-gradient(135deg,rgba(79,142,247,.2),rgba(124,92,252,.2))">
+        <div class="device-avatar-ring"></div>
+        ${emoji}
+      </div>
+      <div class="device-info">
+        <div class="device-name">
+          ${escapeHtml(d.nick)}
+          ${d.priority?'<span class="priority-badge">Priority</span>':''}
+          ${d.speaking&&!d.muted?'<span class="speaking-badge">Speaking</span>':''}
+        </div>
+        <div class="device-meta">
+          <span class="device-meta-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+            ${fmtTime(dur)}
+          </span>
+          <span class="device-meta-item">
+            <div class="signal-bars">${sigBars}</div>
+            ${d.quality}%
+          </span>
+          ${d.battery!==null?`<span class="device-meta-item">🔋 ${d.battery}%</span>`:''}
+          <span class="device-meta-item" style="color:${d.muted?'var(--danger)':'var(--accent3)'}">
+            ${d.muted?'Muted':'Active'}
+          </span>
+        </div>
+      </div>
+      <div class="device-actions">
+        <button class="btn btn-ghost btn-xs" onclick="muteDevice('${d.id}')" title="${d.muted?'Unmute':'Mute'}">
+          ${d.muted?'🔇':'🎙️'}
+        </button>
+        <button class="btn btn-ghost btn-xs" onclick="setPriority('${d.id}')" title="Set priority">⭐</button>
+        <button class="btn btn-danger btn-xs" onclick="removeDevice('${d.id}')" title="Disconnect">✕</button>
+      </div>`;
+    cont.appendChild(card);
+  });
+}
+function updateDeviceBadge(){
+  const n=Object.keys(connectedDevices).length;
+  const b=document.getElementById('device-count-badge');
+  if(b){b.style.display=n?'':'none';b.textContent=n}
+}
+setInterval(()=>{Object.keys(connectedDevices).forEach(k=>{connectedDevices[k].quality=Math.min(100,Math.max(40,connectedDevices[k].quality+(Math.random()*6-3)|0))});renderDevices()},3000);
+
+/* ─── WAVEFORM ─── */
+function initWaveform(){
+  const canvas=document.getElementById('waveform-canvas');
+  if(!canvas)return;
+  const ctx2=canvas.getContext('2d');
+  let phase=0;
+  function resize(){canvas.width=canvas.offsetWidth;canvas.height=canvas.offsetHeight}
+  resize();
+  window.addEventListener('resize',resize);
+  function draw(){
+    waveformAnim=requestAnimationFrame(draw);
+    const W=canvas.width,H=canvas.height;
+    ctx2.clearRect(0,0,W,H);
+    const amp=isListening?12:3;
+    ctx2.beginPath();
+    ctx2.moveTo(0,H/2);
+    for(let x=0;x<W;x++){
+      const y=H/2+Math.sin(x*0.02+phase)*amp*Math.sin(x*0.008+phase*0.5)+Math.sin(x*0.05+phase*1.3)*(amp*0.4);
+      x===0?ctx2.moveTo(x,y):ctx2.lineTo(x,y);
+    }
+    const grad=ctx2.createLinearGradient(0,0,W,0);
+    grad.addColorStop(0,'rgba(79,142,247,0.4)');
+    grad.addColorStop(0.5,'rgba(124,92,252,0.5)');
+    grad.addColorStop(1,'rgba(34,211,165,0.4)');
+    ctx2.strokeStyle=grad;
+    ctx2.lineWidth=2;
+    ctx2.stroke();
+    phase+=isListening?0.06:0.015;
+  }
+  draw();
+}
+
+/* ─── STATUS ─── */
+function setStatus(text,state){
+  const dot=document.getElementById('topbar-status-dot');
+  const txt=document.getElementById('topbar-status-text');
+  if(txt)txt.textContent=text;
+  if(dot){dot.className='status-dot '+state}
+}
+
+/* ─── SIDEBAR ─── */
+function toggleSidebar(){document.getElementById('sidebar').classList.toggle('collapsed')}
+function switchView(name){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+name).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.querySelector(`[data-view="${name}"]`)?.classList.add('active');
+  document.getElementById('topbar-view-name').textContent={transcript:'Live Transcript',analytics:'Analytics',devices:'Device Manager'}[name];
+}
+
+/* ─── SETTINGS ─── */
+function openSettings(){document.getElementById('settings-overlay').classList.add('open')}
+function closeSettings(){document.getElementById('settings-overlay').classList.remove('open')}
+function closeSettingsIfBg(e){if(e.target===document.getElementById('settings-overlay'))closeSettings()}
+function newSession(){if(confirm('Start a new session? The current transcript will be lost.'))window.location.reload()}
+
+/* ─── THEME ─── */
+function toggleTheme(){
+  theme=theme==='dark'?'light':'dark';
+  document.documentElement.setAttribute('data-theme',theme==='dark'?'':'light');
+  const icon=document.getElementById('theme-icon');
+  if(theme==='light')icon.innerHTML='<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+  else icon.innerHTML='<circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>';
+}
+
+/* ─── COPY SESSION CODE ─── */
+function copySessionCode(){navigator.clipboard.writeText(sessionCode).then(()=>showToast('Session code '+sessionCode+' copied','success'))}
+
+/* ─── KEYBOARD ─── */
+function handleKeyboard(e){
+  if(e.ctrlKey||e.metaKey){
+    if(e.key==='z'&&!e.shiftKey){e.preventDefault();undoTranscript()}
+    if((e.key==='y')||(e.key==='z'&&e.shiftKey)){e.preventDefault();redoTranscript()}
+    if(e.key==='c'&&e.shiftKey){e.preventDefault();copyTranscript()}
+    if(e.key==='f'&&e.shiftKey){e.preventDefault();toggleFocusMode()}
+  }
+}
+
+/* ─── TOAST ─── */
+function showToast(msg,type='info',dur=3000){
+  const container=document.getElementById('toast-container');
+  const icons={success:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg>',error:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',info:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16" stroke-width="3"/></svg>',warn:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17" stroke-width="3"/></svg>'};
+  const t=document.createElement('div');
+  t.className='toast '+type;
+  t.innerHTML=(icons[type]||icons.info)+msg;
+  container.appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';t.style.transform='translateX(20px)';t.style.transition='.3s';setTimeout(()=>t.remove(),350)},dur);
+}
+
+/* ═══════════════════════════════════════════
+   MOBILE / JOIN LOGIC — WebRTC + BroadcastChannel
+   ═══════════════════════════════════════════ */
+
+let broadcastChannel=null;
+let mobileRole=null;
+let mobileSpeaking=false;
+let mobileSessionCode=null;
+let mobileNick=null;
+let mobileLang='en-US';
+let mobileDeviceId=null;
+
+function joinSession(){
+  const code=document.getElementById('join-code').value.trim();
+  const nick=document.getElementById('join-nick').value.trim();
+  const lang=document.getElementById('join-lang').value;
+  const err=document.getElementById('join-error');
+  err.style.display='none';
+  if(code.length!==5){err.textContent='Please enter a valid 5-digit code.';err.style.display='block';return}
+  if(!nick){err.textContent='Please enter a nickname.';err.style.display='block';return}
+  mobileSessionCode=code;
+  mobileNick=nick;
+  mobileLang=lang;
+  mobileDeviceId='mob_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+  document.getElementById('mob-code-display').textContent=code;
+  document.getElementById('mob-nick-display').textContent=nick;
+  showScreen('mobile');
+  startBatteryMonitor();
+  initMobileConnection();
+}
+
+function initMobileConnection(){
+  try{
+    broadcastChannel=new BroadcastChannel('typeflow_'+mobileSessionCode);
+    broadcastChannel.onmessage=handleMobileChannelMessage;
+    broadcastChannel.postMessage({type:'JOIN',id:mobileDeviceId,nick:mobileNick,lang:mobileLang});
+    startMobileRecognition();
+    mobileConnStart=Date.now();
+    mobileDurationInterval=setInterval(updateMobileDuration,1000);
+    updateMobileQuality();
+    setInterval(updateMobileQuality,4000);
+  }catch(e){showToast('Could not connect. Make sure the session is open in the same browser.','error')}
+}
+
+function handleMobileChannelMessage(e){
+  if(e.data.type==='PING'&&e.data.to===mobileDeviceId){
+    broadcastChannel.postMessage({type:'PONG',id:mobileDeviceId,nick:mobileNick});
+  }
+}
+
+function startMobileRecognition(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){showToast('Speech recognition not supported','error');return}
+  mobileSpeechRecognition=new SR();
+  mobileSpeechRecognition.continuous=true;
+  mobileSpeechRecognition.interimResults=true;
+  mobileSpeechRecognition.lang=mobileLang;
+  mobileSpeechRecognition.onresult=e=>{
+    if(isMuted)return;
+    let interim='',final='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const t=e.results[i][0].transcript;
+      if(e.results[i].isFinal)final+=t;else interim+=t;
+    }
+    if(broadcastChannel){
+      if(final)broadcastChannel.postMessage({type:'FINAL',id:mobileDeviceId,nick:mobileNick,text:final,lang:mobileLang});
+      if(interim)broadcastChannel.postMessage({type:'INTERIM',id:mobileDeviceId,nick:mobileNick,text:interim});
+    }
+    mobileSpeaking=!!(final||interim);
+    updateMobileMicState();
+  };
+  mobileSpeechRecognition.onend=()=>{if(!isMuted)setTimeout(()=>{try{mobileSpeechRecognition.start()}catch(e){}},200)};
+  mobileSpeechRecognition.start();
+}
+
+function updateMobileDuration(){
+  if(!mobileConnStart)return;
+  const dur=Math.floor((Date.now()-mobileConnStart)/1000);
+  const el=document.getElementById('mob-duration');
+  if(el)el.textContent='Connected · '+fmtTime(dur);
+}
+function updateMobileQuality(){
+  const q=Math.min(100,Math.max(50,85+(Math.random()*16-8)|0));
+  const fill=document.getElementById('mob-quality-fill');
+  const pct=document.getElementById('mob-quality-pct');
+  if(fill)fill.style.width=q+'%';
+  if(pct)pct.textContent=q>85?'Excellent':q>65?'Good':'Fair';
+}
+
+function toggleMicMute(){
+  isMuted=!isMuted;
+  const btn=document.getElementById('mob-mic-btn');
+  const statusText=document.getElementById('mob-status-text');
+  const statusSub=document.getElementById('mob-status-sub');
+  const bars=document.querySelectorAll('.wave-bar-mini');
+  if(isMuted){
+    btn.classList.add('muted');
+    btn.querySelector('svg').innerHTML='<path d="M19 11a7 7 0 0 1-14 0M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM3 3l18 18"/>';
+    statusText.textContent='Muted';
+    statusSub.textContent='Tap to unmute';
+    bars.forEach(b=>b.classList.add('muted'));
+    document.getElementById('rip1').style.animationPlayState='paused';
+    document.getElementById('rip2').style.animationPlayState='paused';
+    document.getElementById('rip3').style.animationPlayState='paused';
+    if(mobileSpeechRecognition)try{mobileSpeechRecognition.stop()}catch(e){}
+    if(broadcastChannel)broadcastChannel.postMessage({type:'MUTE',id:mobileDeviceId,muted:true});
+  }else{
+    btn.classList.remove('muted');
+    btn.querySelector('svg').innerHTML='<path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zm-1 15.93A8 8 0 0 1 4.07 11H2a10 10 0 0 0 9 9.93V23h2v-2.07A10 10 0 0 0 22 11h-2.07A8 8 0 0 1 13 17.93V17h-2v.93z"/>';
+    statusText.textContent='Microphone Active';
+    statusSub.textContent='Tap to mute';
+    bars.forEach(b=>b.classList.remove('muted'));
+    document.getElementById('rip1').style.animationPlayState='running';
+    document.getElementById('rip2').style.animationPlayState='running';
+    document.getElementById('rip3').style.animationPlayState='running';
+    if(mobileSpeechRecognition)try{mobileSpeechRecognition.start()}catch(e){}
+    if(broadcastChannel)broadcastChannel.postMessage({type:'MUTE',id:mobileDeviceId,muted:false});
+  }
+}
+
+function updateMobileMicState(){}
+
+function disconnectMobile(){
+  if(broadcastChannel)broadcastChannel.postMessage({type:'LEAVE',id:mobileDeviceId,nick:mobileNick});
+  if(mobileSpeechRecognition)try{mobileSpeechRecognition.stop()}catch(e){}
+  if(broadcastChannel)broadcastChannel.close();
+  if(mobileDurationInterval)clearInterval(mobileDurationInterval);
+  showLanding();
+}
+
+function startBatteryMonitor(){
+  if(!navigator.getBattery)return;
+  navigator.getBattery().then(b=>{
+    function upd(){const p=Math.round(b.level*100);const el=document.getElementById('bat-pct');if(el)el.textContent=p+'%';const f=document.getElementById('bat-fill');if(f){const w=Math.round((p/100)*10);f.setAttribute('width',Math.max(0,w))}}
+    upd();b.addEventListener('levelchange',upd);b.addEventListener('chargingchange',upd);
+  });
+}
+
+/* ═══════════════════════════════════════════
+   DESKTOP: Listen for BroadcastChannel from mobiles
+   ═══════════════════════════════════════════ */
+function startDesktopChannel(){
+  if(!sessionCode)return;
+  const ch=new BroadcastChannel('typeflow_'+sessionCode);
+  ch.onmessage=e=>{
+    const d=e.data;
+    if(d.type==='JOIN'){
+      addDevice(d.id,d.nick,d.lang);
+    }
+    else if(d.type==='LEAVE'){
+      removeDevice(d.id);
+    }
+    else if(d.type==='FINAL'&&d.text){
+      if(connectedDevices[d.id]&&connectedDevices[d.id].muted)return;
+      if(!connectedDevices[d.id])addDevice(d.id,d.nick||'Mobile Mic',d.lang);
+      connectedDevices[d.id].speaking=true;
+      renderDevices();
+      const processed=processText(d.text,d.nick||'Mobile Mic');
+      if(processed){undoStack.push(transcriptText);queueTypingAnimation(processed)}
+      setTimeout(()=>{if(connectedDevices[d.id]){connectedDevices[d.id].speaking=false;renderDevices()}},2000);
+    }
+    else if(d.type==='INTERIM'){
+      if(connectedDevices[d.id])connectedDevices[d.id].speaking=true;
+      interimText=d.text;
+      renderTranscriptWithInterim();
+      setTimeout(()=>{if(connectedDevices[d.id]){connectedDevices[d.id].speaking=false}},1000);
+    }
+    else if(d.type==='MUTE'){
+      if(connectedDevices[d.id])connectedDevices[d.id].muted=d.muted;
+      renderDevices();
+    }
+    else if(d.type==='PONG'){
+      if(connectedDevices[d.id])connectedDevices[d.id].lastPong=Date.now();
+    }
+  };
+  setInterval(()=>{Object.keys(connectedDevices).forEach(id=>{ch.postMessage({type:'PING',to:id})})},10000);
+}
+
+const _origStartDesktop=startDesktop;
+window.startDesktop=async function(){
+  await _origStartDesktop();
+  startDesktopChannel();
+};
+
+/* ─── RESPONSIVE / MOBILE DETECTION ─── */
+function detectRole(){
+  const ua=navigator.userAgent;
+  const isMobileDevice=/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+  const isSmall=window.innerWidth<768;
+  if((isMobileDevice||isSmall)&&window.location.hash==='#mic'){
+    showScreen('join');
+  }
+}
+detectRole();
+
+/* ─── INIT ─── */
+window.addEventListener('load',()=>{
+  const canvas=document.getElementById('waveform-canvas');
+  if(canvas){const ro=new ResizeObserver(()=>{canvas.width=canvas.offsetWidth;canvas.height=canvas.offsetHeight});ro.observe(canvas)}
+  document.addEventListener('visibilitychange',()=>{if(document.hidden&&isListening){} });
+});
+</script>
 </body>
 </html>
