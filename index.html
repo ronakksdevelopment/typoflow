@@ -6,12 +6,10 @@
     <title>VoiceBridge | Pro Audio & Transcription</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- Firebase SDKs -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, onSnapshot, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-
+    <!-- PeerJS for WebRTC Signaling (No backend required) -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    
+    <script>
         // Tailwind Config
         tailwind.config = {
             darkMode: 'class',
@@ -31,21 +29,16 @@
             }
         }
 
-        // --- Global State & Config ---
-        const rtcConfig = {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:global.stun.twilio.com:3478' }
-            ]
-        };
-
+        // --- Global State ---
         const state = {
-            user: null,
             role: null, // 'host' or 'guest'
             roomCode: null,
             nickname: null,
-            peers: {}, // { uid: { pc, dc, nickname, muted, stream, audioEl, analyser, dataArray } }
+            peerInstance: null, // PeerJS instance
+            peers: {}, // { uid: { conn, call, nickname, muted, stream, audioEl, analyser, dataArray } }
             localStream: null,
+            conn: null, // Guest's data connection
+            call: null, // Guest's media call
             recognition: null,
             isRecording: false,
             transcriptState: {
@@ -58,39 +51,6 @@
             startTime: null,
             timerInterval: null
         };
-
-        // --- Firebase Initialization ---
-        let app, auth, db, appId;
-
-        async function initFirebase() {
-            try {
-                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-                    // Fallback config for local testing if needed, but normally injected by environment
-                    projectId: "demo-project" 
-                };
-                appId = typeof __app_id !== 'undefined' ? __app_id : 'voicebridge_default';
-                
-                app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                db = getFirestore(app);
-
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-
-                onAuthStateChanged(auth, (user) => {
-                    if (user) {
-                        state.user = user;
-                        console.log("Authenticated as:", user.uid);
-                    }
-                });
-            } catch (error) {
-                console.error("Firebase Init Error:", error);
-                showNotification("Failed to connect to servers.", "error");
-            }
-        }
 
         // --- Utility Functions ---
         const $ = (id) => document.getElementById(id);
@@ -128,118 +88,87 @@
         // Text cleaning engine
         function cleanText(text) {
             if (!text) return '';
-            // Remove filler words
             let cleaned = text.replace(/\b(um|uh|hmm|mhm|like|you know|sort of|kind of)\b/gi, '').replace(/\s+/g, ' ').trim();
             if (cleaned.length === 0) return '';
-            // Basic capitalization
             cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-            // Basic punctuation if missing
             if (!/[.!?]$/.test(cleaned)) cleaned += '.';
             return cleaned;
         }
 
         // --- Host Logic (PC Receiver) ---
-        async function startHost() {
-            if (!state.user) return showNotification("Connecting to servers...", "error");
-            
+        function startHost() {
             state.role = 'host';
             state.roomCode = generateCode();
             
             showView('view-host');
             $('host-room-code').textContent = state.roomCode;
-            $('host-room-code').dataset.full = state.roomCode.split('').join(' '); // For accessible reading
+            $('host-room-code').dataset.full = state.roomCode.split('').join(' '); 
             
             state.startTime = Date.now();
             state.timerInterval = setInterval(() => {
                 $('session-timer').textContent = formatTime((Date.now() - state.startTime) / 1000);
             }, 1000);
 
-            // Create Room Doc
-            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'vb_rooms', state.roomCode);
-            await setDoc(roomRef, {
-                createdAt: Date.now(),
-                hostId: state.user.uid,
-                active: true
+            // Initialize PeerJS Host
+            const peerId = `voicebridge-${state.roomCode}`;
+            state.peerInstance = new Peer(peerId);
+
+            state.peerInstance.on('open', (id) => {
+                console.log('Host ready. ID:', id);
             });
 
-            // Listen for signaling messages specific to this room
-            const signalsCol = collection(db, 'artifacts', appId, 'public', 'data', `vb_signals_${state.roomCode}`);
-            
-            onSnapshot(signalsCol, (snapshot) => {
-                snapshot.docChanges().forEach(change => {
-                    if (change.type === 'added') {
-                        const data = change.doc.data();
-                        // Only process messages destined for the host
-                        if (data.targetId === state.user.uid) {
-                            handleHostSignal(data.senderId, data.type, data.payload, data.nickname);
-                        }
-                    }
-                });
-            }, (error) => {
-                console.error("Signal listen error:", error);
-            });
+            // Handle incoming text connections
+            state.peerInstance.on('connection', (conn) => {
+                const guestId = conn.peer;
+                if (!state.peers[guestId]) {
+                    state.peers[guestId] = { nickname: conn.metadata?.nickname || 'Unknown Mic', muted: false, transcribe: true };
+                }
+                state.peers[guestId].conn = conn;
 
-            // Start master visualizer
-            drawMasterWaveform();
-        }
-
-        async function handleHostSignal(guestId, type, payload, nickname) {
-            if (type === 'offer') {
-                showNotification(`${nickname || 'A guest'} is connecting...`);
+                conn.on('data', (data) => handleIncomingText(guestId, data));
+                conn.on('close', () => removeGuest(guestId));
                 
-                const pc = new RTCPeerConnection(rtcConfig);
-                state.peers[guestId] = { pc, nickname: nickname || 'Unknown Mic', muted: false, transcribe: true };
-                
-                // Handle Data Channel (Text)
-                pc.ondatachannel = (event) => {
-                    const dc = event.channel;
-                    state.peers[guestId].dc = dc;
-                    dc.onmessage = (e) => handleIncomingText(guestId, e.data);
-                };
-
-                // Handle Audio Track
-                pc.ontrack = (event) => {
-                    const stream = event.streams[0];
-                    setupAudioReceiver(guestId, stream);
-                };
-
-                // Handle ICE
-                pc.onicecandidate = (event) => {
-                    if (event.candidate) {
-                        sendSignal(guestId, 'candidate', event.candidate);
-                    }
-                };
-
-                pc.oniceconnectionstatechange = () => {
-                    updateMicStatusUI(guestId, pc.iceConnectionState);
-                    if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-                        removeGuest(guestId);
-                    }
-                };
-
-                await pc.setRemoteDescription(new RTCSessionDescription(payload));
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                sendSignal(guestId, 'answer', answer);
-                
+                showNotification(`${state.peers[guestId].nickname} connected via text channel.`);
                 renderMicList();
+            });
 
-            } else if (type === 'candidate' && state.peers[guestId]) {
-                state.peers[guestId].pc.addIceCandidate(new RTCIceCandidate(payload)).catch(e => console.error(e));
-            }
+            // Handle incoming audio calls
+            state.peerInstance.on('call', (call) => {
+                const guestId = call.peer;
+                if (!state.peers[guestId]) {
+                    state.peers[guestId] = { nickname: call.metadata?.nickname || 'Unknown Mic', muted: false, transcribe: true };
+                }
+                state.peers[guestId].call = call;
+
+                call.answer(); // Answer without sending a stream (Receiver only)
+                
+                call.on('stream', (remoteStream) => {
+                    setupAudioReceiver(guestId, remoteStream);
+                    updateMicStatusUI(guestId, 'connected');
+                    renderMicList();
+                    showNotification(`${state.peers[guestId].nickname} audio stream active.`);
+                });
+
+                call.on('close', () => removeGuest(guestId));
+            });
+
+            state.peerInstance.on('error', (err) => {
+                console.error("Host Peer Error:", err);
+                showNotification(`Network Error: ${err.type}`, "error");
+            });
+
+            drawMasterWaveform();
         }
 
         function setupAudioReceiver(guestId, stream) {
             const peer = state.peers[guestId];
             peer.stream = stream;
             
-            // Audio Element for playback
             const audioEl = document.createElement('audio');
             audioEl.srcObject = stream;
             audioEl.autoplay = true;
             peer.audioEl = audioEl;
 
-            // Audio Context for visualization
             const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             const source = audioCtx.createMediaStreamSource(stream);
             const analyser = audioCtx.createAnalyser();
@@ -248,9 +177,6 @@
             
             peer.analyser = analyser;
             peer.dataArray = new Uint8Array(analyser.frequencyBinCount);
-            
-            // Do NOT connect to destination if we want custom mixing, but here we just let the audio element play it.
-            // Actually, playing via element and analysing via context is fine.
         }
 
         function handleIncomingText(guestId, messageStr) {
@@ -261,7 +187,6 @@
                 const msg = JSON.parse(messageStr);
                 
                 if (msg.type === 'interim') {
-                    // Update visual indicator
                     const micCard = $(`mic-${guestId}`);
                     if(micCard) micCard.classList.add('border-primary', 'bg-primary/10');
                     setTimeout(() => {
@@ -273,11 +198,8 @@
                 } else if (msg.type === 'final') {
                     const cleaned = cleanText(msg.text);
                     if (cleaned) {
-                        // Paragraph logic: If > 3 seconds since last input, new paragraph
                         const now = Date.now();
                         const prefix = (now - state.transcriptState.lastInputTime > 3000 && state.transcriptState.fullText.length > 0) ? '\n\n' : ' ';
-                        
-                        // Append text with speaker tag if multiple
                         const speakerTag = Object.keys(state.peers).length > 1 ? `[${peer.nickname}] ` : '';
                         
                         state.transcriptState.fullText += `${prefix}${speakerTag}${cleaned}`;
@@ -324,7 +246,6 @@
                 `;
                 container.appendChild(div);
                 
-                // Setup individual visualizer loop
                 const canvas = $(`canvas-${uid}`);
                 if (canvas && peer.analyser) {
                     const ctx = canvas.getContext('2d');
@@ -370,7 +291,8 @@
 
         window.removeGuest = (uid) => {
             if (state.peers[uid]) {
-                state.peers[uid].pc.close();
+                if(state.peers[uid].conn) state.peers[uid].conn.close();
+                if(state.peers[uid].call) state.peers[uid].call.close();
                 if(state.peers[uid].audioEl) state.peers[uid].audioEl.remove();
                 delete state.peers[uid];
                 renderMicList();
@@ -385,7 +307,7 @@
                 el.textContent = 'Live';
             } else {
                 el.className = 'text-xs px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-400';
-                el.textContent = 'Lagging';
+                el.textContent = 'Disconnected';
             }
         }
 
@@ -396,89 +318,61 @@
             
             if(code.length !== 5) return showNotification("Enter a valid 5-digit code", "error");
             if(!nickname) return showNotification("Please enter a nickname", "error");
-            if(!state.user) return showNotification("Authenticating...", "error");
 
             $('btn-join').disabled = true;
             $('btn-join').innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Connecting...';
             lucide.createIcons();
 
             try {
-                // Check if room exists
-                const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'vb_rooms', code);
-                const roomSnap = await getDoc(roomRef);
-                
-                if (!roomSnap.exists()) {
-                    throw new Error("Room not found");
-                }
-                
-                state.role = 'guest';
-                state.roomCode = code;
-                state.nickname = nickname;
-                const hostId = roomSnap.data().hostId;
-
-                // Get Microphone
+                // Get Microphone first
                 state.localStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-                
-                // Setup WebRTC
-                const pc = new RTCPeerConnection(rtcConfig);
-                state.peers['host'] = { pc };
-
-                // Create Data Channel for Transcripts
-                const dc = pc.createDataChannel('transcript');
-                state.peers['host'].dc = dc;
-
-                // Add Audio
-                state.localStream.getTracks().forEach(track => pc.addTrack(track, state.localStream));
-
-                // Handle ICE
-                pc.onicecandidate = (event) => {
-                    if (event.candidate) {
-                        sendSignal(hostId, 'candidate', event.candidate);
-                    }
-                };
-                
-                pc.oniceconnectionstatechange = () => {
-                    const statusEl = $('mobile-status');
-                    if(pc.iceConnectionState === 'connected') {
-                        statusEl.textContent = 'Connected & Live';
-                        statusEl.className = 'text-emerald-400 text-sm font-medium flex items-center justify-center gap-2';
-                    } else if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-                        statusEl.textContent = 'Disconnected';
-                        statusEl.className = 'text-red-400 text-sm font-medium flex items-center justify-center gap-2';
-                        stopGuest();
-                    }
-                };
-
-                // Create Offer
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                sendSignal(hostId, 'offer', offer);
-
-                // Listen for Answer/Candidates from Host
-                const signalsCol = collection(db, 'artifacts', appId, 'public', 'data', `vb_signals_${code}`);
-                onSnapshot(signalsCol, (snapshot) => {
-                    snapshot.docChanges().forEach(change => {
-                        if (change.type === 'added') {
-                            const data = change.doc.data();
-                            if (data.targetId === state.user.uid) {
-                                if(data.type === 'answer') {
-                                    pc.setRemoteDescription(new RTCSessionDescription(data.payload));
-                                    setupSpeechRecognition();
-                                    showGuestActiveView();
-                                } else if (data.type === 'candidate') {
-                                    pc.addIceCandidate(new RTCIceCandidate(data.payload)).catch(e=>console.error(e));
-                                }
-                            }
-                        }
-                    });
-                });
-
             } catch (error) {
                 console.error(error);
-                showNotification(error.message || "Failed to join room", "error");
+                showNotification("Microphone access denied or unavailable.", "error");
                 $('btn-join').disabled = false;
                 $('btn-join').innerHTML = 'Connect Microphone';
+                return;
             }
+
+            state.role = 'guest';
+            state.roomCode = code;
+            state.nickname = nickname;
+
+            // Initialize PeerJS Guest
+            state.peerInstance = new Peer();
+
+            state.peerInstance.on('open', (id) => {
+                const hostId = `voicebridge-${code}`;
+
+                // Connect to Host
+                state.conn = state.peerInstance.connect(hostId, { metadata: { nickname: state.nickname } });
+                state.call = state.peerInstance.call(hostId, state.localStream, { metadata: { nickname: state.nickname } });
+
+                state.conn.on('open', () => {
+                    const statusEl = $('mobile-status');
+                    statusEl.textContent = 'Connected & Live';
+                    statusEl.className = 'text-emerald-400 text-sm font-medium flex items-center justify-center gap-2';
+                    
+                    setupSpeechRecognition();
+                    showGuestActiveView();
+                });
+
+                state.conn.on('close', () => {
+                    showNotification("Host ended the session.", "error");
+                    stopGuest();
+                });
+
+                state.call.on('error', (err) => {
+                    showNotification("Audio call failed.", "error");
+                    stopGuest();
+                });
+            });
+
+            state.peerInstance.on('error', (err) => {
+                console.error("Guest Peer Error:", err);
+                showNotification(`Connection failed. Check code.`, "error");
+                stopGuest();
+            });
         }
 
         function setupSpeechRecognition() {
@@ -512,17 +406,15 @@
                     }
                 }
 
-                const dc = state.peers['host']?.dc;
-                if (dc && dc.readyState === 'open') {
+                if (state.conn && state.conn.open) {
                     if (finalTranscript) {
-                        dc.send(JSON.stringify({ type: 'final', text: finalTranscript }));
+                        state.conn.send(JSON.stringify({ type: 'final', text: finalTranscript }));
                     }
                     if (interimTranscript) {
-                        dc.send(JSON.stringify({ type: 'interim', text: interimTranscript }));
+                        state.conn.send(JSON.stringify({ type: 'interim', text: interimTranscript }));
                     }
                 }
                 
-                // Local UI update
                 $('mobile-transcript').textContent = interimTranscript || "Listening...";
             };
 
@@ -532,8 +424,7 @@
             };
 
             recognition.onend = () => {
-                // Auto restart if still supposed to be connected
-                if(state.role === 'guest' && state.peers['host']) {
+                if(state.role === 'guest' && state.conn && state.conn.open) {
                     try { recognition.start(); } catch(e){}
                 }
             };
@@ -565,33 +456,19 @@
 
         window.stopGuest = () => {
             if(state.recognition) { state.recognition.stop(); state.recognition = null; }
-            if(state.localStream) { state.localStream.getTracks().forEach(t => t.stop()); }
-            if(state.peers['host']) { state.peers['host'].pc.close(); delete state.peers['host']; }
+            if(state.localStream) { state.localStream.getTracks().forEach(t => t.stop()); state.localStream = null; }
+            if(state.conn) { state.conn.close(); state.conn = null; }
+            if(state.call) { state.call.close(); state.call = null; }
+            if(state.peerInstance) { state.peerInstance.destroy(); state.peerInstance = null; }
             state.role = null;
             showView('view-home');
             $('btn-join').disabled = false;
             $('btn-join').innerHTML = 'Connect Microphone';
         };
 
-        // --- Common Signaling ---
-        async function sendSignal(targetId, type, payload) {
-            const signalId = crypto.randomUUID();
-            const signalRef = doc(db, 'artifacts', appId, 'public', 'data', `vb_signals_${state.roomCode}`, signalId);
-            await setDoc(signalRef, {
-                senderId: state.user.uid,
-                targetId: targetId,
-                type: type,
-                payload: JSON.parse(JSON.stringify(payload)), // clean object for firestore
-                nickname: state.nickname,
-                timestamp: Date.now()
-            });
-        }
-
         // --- UI & Text Management (Host) ---
         function updateTranscriptUI() {
             const output = $('transcript-output');
-            
-            // Format HTML for display
             let html = state.transcriptState.fullText
                 .replace(/\n\n/g, '</p><p class="mt-4">')
                 .replace(/\[(.*?)\]/g, '<span class="text-xs font-semibold text-primary/80 uppercase tracking-wider">[$1]</span>');
@@ -605,7 +482,6 @@
             
             output.innerHTML = html;
             
-            // Auto scroll
             const container = $('transcript-container');
             container.scrollTop = container.scrollHeight;
         }
@@ -641,7 +517,6 @@
         };
 
         window.downloadDocx = () => {
-            // Generates a .doc file using HTML, readable by MS Word.
             const textHTML = state.transcriptState.fullText.replace(/\n\n/g, '<br><br>');
             const html = `
                 <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
@@ -673,14 +548,11 @@
                 if(state.role !== 'host') return;
                 requestAnimationFrame(draw);
                 
-                // Clear
                 ctx.fillStyle = '#0f172a';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 
-                // Aggregate data
                 let activePeers = Object.values(state.peers).filter(p => p.analyser && p.dataArray);
                 if(activePeers.length === 0) {
-                    // Draw idle line
                     ctx.beginPath();
                     ctx.moveTo(0, canvas.height/2);
                     ctx.lineTo(canvas.width, canvas.height/2);
@@ -690,7 +562,6 @@
                     return;
                 }
 
-                // Simple mix visualizer
                 const bufferLength = activePeers[0].dataArray.length;
                 const sliceWidth = canvas.width * 1.0 / bufferLength;
                 
@@ -702,7 +573,7 @@
                 for (let i = 0; i < bufferLength; i++) {
                     let sum = 0;
                     activePeers.forEach(p => {
-                        p.analyser.getByteTimeDomainData(p.dataArray); // Use time domain for waveform
+                        p.analyser.getByteTimeDomainData(p.dataArray); 
                         sum += p.dataArray[i];
                     });
                     const v = (sum / activePeers.length) / 128.0;
@@ -720,9 +591,7 @@
 
         // --- Event Listeners & Init ---
         document.addEventListener('DOMContentLoaded', () => {
-            initFirebase();
             lucide.createIcons();
-
             $('btn-select-pc').addEventListener('click', startHost);
             $('btn-select-mobile').addEventListener('click', () => showView('view-guest-setup'));
             $('btn-back-home').addEventListener('click', () => showView('view-home'));
